@@ -1,0 +1,723 @@
+"""Convierte a MusicXML los SVG que exporta MuseScore, leyendo las coordenadas de cada símbolo. Sin OMR.
+
+Uso: python svg2musicxml.py pagina1.svg [pagina2.svg ...] -o salida.musicxml [--compas 9/8]  (por defecto 4/4)
+
+Solo funciona con SVG cuyos <path> traen class="Note", "Stem", etc. El texto viene como contornos, no como
+letras, así que títulos, tempo, dinámicas y letra se pierden. Los avisos van a stderr.
+"""
+import argparse
+import re
+import sys
+from collections import Counter
+from fractions import Fraction as F
+from pathlib import Path
+
+NUM = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
+SEP = re.compile(r"[\s,]*")
+ARGS = dict(M=2, L=2, H=1, V=1, C=6, S=4, Q=4, T=2, A=7, Z=0)
+STEPS = "CDEFGAB"
+CLEF_BASE = {"G": 4 * 7 + 2, "F": 2 * 7 + 4}  # línea inferior: E4 y G2
+FLATS, SHARPS = "BEADGCF", "FCGDAEB"
+TYPES = {F(8): "whole", F(4): "half", F(2): "quarter", F(1): "eighth", F(1, 2): "16th", F(1, 4): "32nd"}
+TUPLET = {2: (2, 3), 3: (3, 2), 4: (4, 3), 5: (5, 4), 6: (6, 4), 7: (7, 4)}  # notas del grupo -> actual, normal
+
+
+def aviso(msg):
+    print(f"Aviso: {msg}", file=sys.stderr)
+
+
+def numeros(cmd, body):
+    if cmd not in "aA":
+        return [float(x) for x in NUM.findall(body)]
+    # las banderas de un arco pueden ir pegadas: "0 00-1.375"
+    out, i = [], 0
+    while True:
+        i = SEP.match(body, i).end()
+        if i >= len(body):
+            return out
+        if len(out) % 7 in (3, 4):
+            out.append(float(body[i]))
+            i += 1
+        else:
+            m = NUM.match(body, i)
+            out.append(float(m.group()))
+            i = m.end()
+
+
+def glifos(d):
+    """Parte un atributo d en glifos con su caja. Una 'm' tras una figura es hueco interior, no glifo nuevo."""
+    out, x, y, sx, sy, cur = [], 0.0, 0.0, 0.0, 0.0, None
+    for cmd, body in re.findall(r"([a-zA-Z])([^a-zA-Z]*)", d):
+        size, n = ARGS[cmd.upper()], numeros(cmd, body)
+        if not size:
+            x, y = sx, sy
+            continue
+        for k in range(0, len(n), size):
+            a, c = n[k:k + size], cmd
+            if c in "Mm" and k:
+                c = "L" if c == "M" else "l"
+            bx, by = (x, y) if c.islower() else (0.0, 0.0)
+            C = c.upper()
+            if C == "M":
+                x, y = a[0] + bx, a[1] + by
+                sx, sy = x, y
+                if c == "M" or cur is None:
+                    cur = dict(start=(x, y), xs=[x], ys=[y], huecos=0)
+                    out.append(cur)
+                else:
+                    cur["huecos"] += 1
+                continue
+            if C == "H":
+                x = a[0] + bx
+            elif C == "V":
+                y = a[0] + by
+            elif C == "A":
+                x, y = a[5] + bx, a[6] + by
+            else:
+                cur["xs"] += [v + bx for v in a[0::2]]
+                cur["ys"] += [v + by for v in a[1::2]]
+                x, y = a[-2] + bx, a[-1] + by
+            cur["xs"].append(x)
+            cur["ys"].append(y)
+            cur.setdefault("fin", (x, y))  # en ligaduras: la otra punta, antes de volver por el grosor
+    for g in out:
+        g.update(x0=min(g["xs"]), x1=max(g["xs"]), y0=min(g["ys"]), y1=max(g["ys"]))
+    for g in out:
+        g["x"], g["y"] = (g["x0"] + g["x1"]) / 2, (g["y0"] + g["y1"]) / 2
+        del g["xs"], g["ys"]
+    return out
+
+
+def unir(gs):
+    """Junta los contornos de un elemento en un solo glifo."""
+    g = gs[0]
+    g.update(x0=min(o["x0"] for o in gs), x1=max(o["x1"] for o in gs), y0=min(o["y0"] for o in gs), y1=max(o["y1"] for o in gs),
+             huecos=len(gs) - 1 + sum(o["huecos"] for o in gs))
+    g["x"], g["y"] = (g["x0"] + g["x1"]) / 2, (g["y0"] + g["y1"]) / 2
+    return [g]
+
+
+def aplicar_matriz(gs, m):
+    """Algunos símbolos traen coordenadas locales más una matriz. Solo se usan escala y traslación."""
+    a, _, _, d, e, f = m
+    for g in gs:
+        g["x0"], g["x1"] = sorted((a * g["x0"] + e, a * g["x1"] + e))
+        g["y0"], g["y1"] = sorted((d * g["y0"] + f, d * g["y1"] + f))
+        g["x"], g["y"] = (g["x0"] + g["x1"]) / 2, (g["y0"] + g["y1"]) / 2
+        g["start"] = (a * g["start"][0] + e, d * g["start"][1] + f)
+        if "fin" in g:
+            g["fin"] = (a * g["fin"][0] + e, d * g["fin"][1] + f)
+
+
+def leer_svg(ruta):
+    items = {}
+    texto = Path(ruta).read_text(encoding="utf-8")
+    if not texto.strip():
+        sys.exit(f"{ruta}: pesa 0 bytes; falta esa página")
+    # MuseScore de escritorio escribe un elemento por símbolo; la web junta muchos en cada <path>
+    escritorio = "<polyline" in texto
+    # la web usa <path> con todo junto y coordenadas relativas; MuseScore de escritorio, además <polyline>
+    for tag, attrs in re.findall(r"<(path|polyline)\b([^>]*?)/?>", texto):
+        c, d = re.search(r'class="([^"]*)"', attrs), re.search(r'\s(?:d|points)="([^"]*)"', attrs)
+        if c and d:
+            gs = glifos(d.group(1) if tag == "path" else "M" + d.group(1))
+            t = re.search(r'transform="matrix\(([^)]*)\)"', attrs)
+            if t:
+                aplicar_matriz(gs, [float(v) for v in NUM.findall(t.group(1))])
+            items.setdefault(c.group(1), []).extend(unir(gs) if escritorio and gs and c.group(1) != "Beam" else gs)
+    if "Note" not in items or "StaffLines" not in items:
+        sys.exit(f"{ruta}: no trae clases de MuseScore (Note, StaffLines); este script no sirve para él")
+    return items
+
+
+class Pagina:
+    def __init__(self, ruta):
+        self.it = it = leer_svg(ruta)
+        for g in it.values():
+            g.sort(key=lambda s: s["x0"])
+        lineas = sorted((round(g["start"][1], 2), g["x0"]) for g in it["StaffLines"])
+        filas = [lineas[i:i + 5] for i in range(0, len(lineas), 5)]
+        self.sp = sp = (filas[0][4][0] - filas[0][0][0]) / 4
+        self.pentas = [dict(top=f[0][0], bot=f[4][0], x0=f[0][1]) for f in filas]
+        # dos pentagramas son del mismo sistema si una barra de compás los une
+        self.sistemas, actual = [], [self.pentas[0]]
+        for a, b in zip(self.pentas, self.pentas[1:]):
+            unidos = any(a["top"] - sp <= g["y0"] <= a["bot"] and g["y1"] >= b["top"] - sp for g in it["BarLine"])
+            if unidos:
+                actual.append(b)
+            else:
+                self.sistemas.append(actual)
+                actual = [b]
+        self.sistemas.append(actual)
+
+    def sistema_de(self, y):
+        return min(self.sistemas, key=lambda s: max(s[0]["top"] - y, y - s[-1]["bot"], 0))
+
+    def penta_de(self, sistema, y):
+        return min(range(len(sistema)), key=lambda i: abs((sistema[i]["top"] + sistema[i]["bot"]) / 2 - y))
+
+    def barras(self, sistema):
+        sp = self.sp
+        xs = sorted(g["x"] for g in self.it["BarLine"] if sistema[0]["top"] - sp <= g["y"] <= sistema[-1]["bot"] + sp and g["y1"] - g["y0"] > 3 * sp)
+        # shortcut: una barra doble o de repetición cuenta como una sola, las repeticiones se pierden
+        uniq = [x for i, x in enumerate(xs) if i == 0 or x - xs[i - 1] > 2 * sp]
+        if not uniq or uniq[0] - sistema[0]["x0"] > 2 * sp:
+            uniq.insert(0, sistema[0]["x0"])
+        # barra de inicio de repetición tras clave y armadura: el tramo anterior no es un compás
+        if len(uniq) > 2 and not any(uniq[0] <= g["x"] < uniq[1] and sistema[0]["top"] - 6 * sp <= g["y"] <= sistema[-1]["bot"] + 6 * sp
+                                     for k in ("Note", "Rest", "MeasureRepeat") for g in self.it.get(k, [])):
+            del uniq[1]
+        return uniq
+
+
+def clase_alteracion(g, sp):
+    w = (g["x1"] - g["x0"]) / sp
+    return "natural" if w < 0.74 else "flat" if w < 0.92 else "sharp"
+
+
+def leer_armadura(pag):
+    s = pag.sistemas[0]
+    k = [g for g in pag.it.get("KeySig", []) if pag.penta_de(s, g["y"]) == 0 and abs(g["y"] - s[0]["top"]) < 8 * pag.sp
+         and g["x"] < pag.barras(s)[1]]
+    if not k:
+        return 0
+    n = len(k)
+    return n if clase_alteracion(k[0], pag.sp) == "sharp" else -n
+
+
+def altera_armadura(fifths):
+    return {p: -1 for p in FLATS[:-fifths]} if fifths < 0 else {p: 1 for p in SHARPS[:fifths]}
+
+
+def tiene_puntillo(h, up, d, sistema, sp):
+    if not 0 < d["x"] - h["x1"] < 2.4 * sp:
+        return False
+    dy = d["y"] - h["y"]
+    en_linea = round((h["y"] - sistema[h["penta"]]["top"]) / (sp / 2)) % 2 == 0
+    if not en_linea:
+        return abs(dy) < .25 * sp
+    # en una línea el puntillo sube al espacio (voz de arriba) o baja (voz de abajo)
+    return (-.75 * sp < dy < -.25 * sp) if up else (-.75 * sp < dy < .75 * sp and abs(dy) > .25 * sp)
+
+
+def construir_eventos(pag, sistema, npag):
+    """Agrupa cabezas por plica y les da figura. Devuelve una lista de eventos por compás del sistema."""
+    it, sp = pag.it, pag.sp
+    barras = pag.barras(sistema)
+    en_sistema = lambda g: pag.sistema_de(g["y"]) is sistema
+    stems = [dict(g, cabezas=[]) for g in it.get("Stem", []) if en_sistema(g)]
+    beams = [b for b in it.get("Beam", []) if en_sistema(b)]
+    hooks = [h for h in it.get("Hook", []) if en_sistema(h)]
+    dots = [d for d in it.get("NoteDot", []) if en_sistema(d)]
+    sin_plica = []
+    for n in (g for g in it["Note"] if en_sistema(g)):
+        h = dict(n, penta=pag.penta_de(sistema, n["y"]))
+        c = [s for s in stems if s["y0"] - .6 * sp <= n["y"] <= s["y1"] + .6 * sp and min(abs(n["x0"] - s["x"]), abs(n["x1"] - s["x"])) < .25 * sp]
+        if c:
+            min(c, key=lambda s: min(abs(n["x0"] - s["x"]), abs(n["x1"] - s["x"])))["cabezas"].append(h)
+        else:
+            sin_plica.append(h)
+    eventos = []
+    for s in stems:
+        if not s["cabezas"]:
+            continue
+        hs = s["cabezas"]
+        up = s["x"] > sum(h["x"] for h in hs) / len(hs)
+        toca = lambda b, y: b["x0"] - .2 * sp <= s["x"] <= b["x1"] + .2 * sp and b["y0"] - .25 * sp <= y <= b["y1"] + .25 * sp
+        extremo = s["y0"] if up else s["y1"]
+        en_barra = [b for b in beams if toca(b, extremo)] or [b for b in beams if toca(b, s["y0"]) or toca(b, s["y1"])]
+        gancho = any(h["x0"] - .3 * sp <= s["x"] <= h["x0"] + .3 * sp and (h["y0"] - .5 * sp <= s["y0"] <= h["y1"] or h["y0"] <= s["y1"] <= h["y1"] + .5 * sp) for h in hooks)
+        if hs[0]["huecos"]:
+            base = F(4)
+        elif sum(b["x0"] - .2 * sp <= s["x"] <= b["x1"] + .2 * sp and (extremo - .25 * sp <= b["y1"] and b["y0"] <= extremo + 1.5 * sp if up else
+                 extremo - 1.5 * sp <= b["y1"] and b["y0"] <= extremo + .25 * sp) for b in beams) >= 2:
+            base = F(1, 2)  # la segunda barra queda hacia la cabeza, sin tocar el extremo de la plica
+        elif en_barra or gancho:
+            base = F(1)
+        else:
+            base = F(2)
+        ev = dict(tipo="nota", base=base, cabezas=hs, up=up, plica=True, x=s["x"] + (-.65 if up else .65) * sp,
+                  barra=id(max(en_barra, key=lambda b: b["x1"] - b["x0"])) if en_barra else None,
+                  penta=hs[0]["penta"], extremo=extremo)
+        eventos.append(ev)
+    for h in sin_plica:  # redondas: sin plica; las de un mismo acorde comparten columna
+        ev = next((e for e in eventos if not e["plica"] and abs(e["x"] - h["x"]) < sp and e["penta"] == h["penta"]), None)
+        if ev:
+            ev["cabezas"].append(h)
+        else:
+            # shortcut: la barra diagonal de ritmo se toma por negra; si hay blancas en barra, saldrán negras
+            barra_ritmo = (h["x1"] - h["x0"]) / sp > 1.9
+            eventos.append(dict(tipo="nota", base=F(2) if barra_ritmo else F(8), cabezas=[h], up=None, plica=False, x=h["x"], barra=None, penta=h["penta"], extremo=h["y"], slash=barra_ritmo))
+    for e in eventos:
+        e["puntillo"] = any(tiene_puntillo(h, e["up"], d, sistema, sp) for h in e["cabezas"] for d in dots)
+    for r in (g for g in it.get("Rest", []) if en_sistema(g)):
+        penta = pag.penta_de(sistema, r["y"])
+        alto = (r["y1"] - r["y0"]) / sp
+        if alto < .8:  # bloque: la redonda cuelga de una línea, la blanca se apoya en ella
+            lineas = [sistema[penta]["top"] + i * sp for i in range(5)]
+            cuelga = r["y"] > min(lineas, key=lambda y: abs(y - r["y"]))
+            base = None if cuelga else F(4)  # None: compás completo, se resuelve con la duración del compás
+        elif alto < 2.3:
+            base = F(1)
+        else:
+            base = F(2)  # shortcut: negra y semicorchea no se distinguen por tamaño; se toma negra
+        d = any(0 < p["x"] - r["x1"] < 1.5 * sp and abs(p["y"] - r["y"]) <= sp for p in dots)
+        eventos.append(dict(tipo="silencio", base=base, cabezas=[], up=None, plica=False, x=r["x"], barra=None, penta=penta, y=r["y"], puntillo=d))
+    for e in eventos:
+        e["factor"] = F(1)
+    aplicar_tresillos(pag, sistema, eventos, en_sistema)
+    compases = [[] for _ in barras[:-1]] if len(barras) > 1 else [[]]
+    for e in eventos:
+        i = next((i for i in range(len(barras) - 1) if barras[i] <= e["x"] < barras[i + 1]), None)
+        if i is None:
+            aviso(f"página {npag}: evento fuera de los compases en x={e['x']:.0f}")
+            continue
+        compases[i].append(e)
+    return compases, barras
+
+
+def aplicar_tresillos(pag, sistema, eventos, en_sistema):
+    """El número de un grupo irregular se deduce del tamaño del grupo: el dígito es un contorno que no leemos."""
+    sp = pag.sp
+    grupos = {}
+    for e in eventos:
+        if e["barra"] is not None:
+            grupos.setdefault(e["barra"], []).append(e)
+    for t in (g for g in pag.it.get("Tuplet", []) if en_sistema(g)):
+        def cercania(g):
+            xs = [e["x"] for e in g]
+            if not min(xs) - sp <= t["x"] <= max(xs) + sp:
+                return None
+            ys = [e["extremo"] for e in g] + [h["y"] for e in g for h in e["cabezas"]]
+            return min(abs(y - t["y"]) for y in ys)
+        cand = [(c, g) for g in grupos.values() if (c := cercania(g)) is not None and c < 5 * sp]
+        if cand:
+            miembros = min(cand, key=lambda a: a[0])[1]
+            if "tresillo" in miembros[0]:  # ya marcado desde la voz paralela
+                continue
+        else:  # silencio + nota con corchete, sin barra que los una
+            penta = pag.penta_de(sistema, t["y"])
+            cerca = [e for e in eventos if e["penta"] == penta and e["barra"] is None and e["base"] == F(1) and abs(e["x"] - t["x"]) < 8 * sp]
+            izq = [e for e in cerca if e["x"] < t["x"]]
+            der = [e for e in cerca if e["x"] >= t["x"]]
+            if not izq or not der:
+                aviso(f"número de grupo irregular sin grupo en x={t['x']:.0f}")
+                continue
+            miembros = [max(izq, key=lambda e: e["x"]), min(der, key=lambda e: e["x"])]
+        if len(miembros) not in TUPLET:
+            aviso(f"grupo irregular de {len(miembros)} notas sin interpretar en x={t['x']:.0f}")
+            continue
+        real, normal = TUPLET[len(miembros)]
+        miembros = sorted(miembros, key=lambda e: e["x"])
+        marcar_grupo(miembros, real, normal)
+        # la voz paralela puede llevar el mismo ritmo sin número impreso
+        junto = [[o for o in eventos if abs(o["x"] - e["x"]) < 1.5 * sp and "tresillo" not in o and o["base"] == e["base"]] for e in miembros]
+        for penta in {o["penta"] for o in junto[0]}:
+            paralelos = [[o for o in c if o["penta"] == penta] for c in junto]
+            if all(len(c) == 1 for c in paralelos):
+                marcar_grupo([c[0] for c in paralelos], real, normal)
+
+
+def marcar_grupo(miembros, real, normal):
+    for e in miembros:
+        e["factor"], e["tresillo"] = F(normal, real), (real, normal)
+    miembros[0]["t_ini"] = miembros[-1]["t_fin"] = True
+
+
+def duracion(e):
+    return e["base"] * (F(3, 2) if e["puntillo"] else 1) * e["factor"]
+
+
+def columnas(eventos, sp):
+    cols = []
+    for e in sorted(eventos, key=lambda e: e["x"]):
+        if cols and e["x"] - cols[-1][0]["x"] < 1.5 * sp:
+            cols[-1].append(e)
+        else:
+            cols.append([e])
+    return cols
+
+
+def barrer(eventos, sp, largo=None):
+    """Da tiempo a cada columna: la siguiente empieza cuando termina la nota sonando que acaba antes."""
+    t, total, fallos = F(0), F(0), 0
+    activos = []
+    for col in columnas(eventos, sp):
+        if activos or t:
+            futuros = [f for f in activos if f > t]
+            if futuros:
+                t = min(futuros)
+            else:
+                fallos += 1  # hueco: nadie termina justo aquí
+                t = total
+        for e in col:
+            e["t"] = t
+            if e["base"] is None:
+                e["base"] = largo if largo else F(0)
+            d = duracion(e)
+            activos.append(t + d)
+            total = max(total, t + d)
+    return total, fallos
+
+
+def repartir_voces(eventos):
+    """Colorea por intervalos: los grupos con barra van enteros a una voz, por si cruzan de pentagrama."""
+    grupos = {}
+    for e in eventos:
+        grupos.setdefault(e["barra"] if e["barra"] is not None else id(e), []).append(e)
+    orden = lambda g: (g[0]["tipo"] == "silencio", g[0]["up"] is False, min(e["t"] for e in g))
+    ocupado = {}
+    for g in sorted(grupos.values(), key=orden):
+        penta = min(g, key=lambda e: e["t"])["penta"]
+        tramos = [(e["t"], e["t"] + duracion(e)) for e in g]
+        v = 0
+        while any(a < d and c < b for a, b in tramos for c, d in ocupado.get((penta, v), [])):
+            v += 1
+        ocupado.setdefault((penta, v), []).extend(tramos)
+        for e in g:
+            e["voz"] = penta * 4 + v + 1
+            e["penta_voz"] = penta
+
+
+def enganchar_ligaduras(pag, sistema, evs_sistema):
+    sp = pag.sp
+    cabezas = [h for e in evs_sistema for h in e["cabezas"]]
+    pares = []
+    for i, tie in enumerate(g for g in pag.it.get("TieSegment", []) if pag.sistema_de(g["y"]) is sistema):
+        sy = tie["start"][1]
+        arriba = abs(sy - tie["y1"]) < abs(sy - tie["y0"])
+        esperado = sy + (.4 * sp if arriba else -.4 * sp)
+        for j, h in enumerate(cabezas):
+            if h["x"] < tie["x0"] + sp and tie["x0"] - h["x1"] < 2 * sp and abs(h["y"] - esperado) < .65 * sp:
+                pares.append((abs(h["y"] - esperado) + abs(tie["x0"] - h["x1"]) * .1, i, j))
+    usadas, hechas = set(), set()
+    for _, i, j in sorted(pares):
+        if i not in usadas and j not in hechas:
+            usadas.add(i)
+            hechas.add(j)
+            cabezas[j]["liga"] = True
+
+
+def enganchar_expresion(pag, compases_pag, pendientes):
+    """Cada extremo va al evento más cercano de la página: una ligadura alta puede quedar más cerca de otro
+    sistema. Un tramo que empieza o acaba en el borde continúa en el sistema vecino."""
+    sp = pag.sp
+    notas = [e for c in compases_pag for e in c["ev"] if e["tipo"] == "nota"]
+    if not notas:
+        return
+
+    def mas_cerca(punto):
+        x, y = punto
+        return min(notas, key=lambda e: abs(e["x"] - x) + .25 * min(abs(v - y) for v in [e["extremo"], *(h["y"] for h in e["cabezas"])]))
+
+    for s in sorted(pag.it.get("SlurSegment", []), key=lambda g: (g["y0"] // (20 * sp), g["x0"])):
+        ini, fin = mas_cerca(s["start"]), mas_cerca(s["fin"])
+        sistema = next(c["sistema"] for c in compases_pag if any(e is fin for e in c["ev"]))
+        en_sis = [e["x"] for c in compases_pag if c["sistema"] is sistema for e in c["ev"]]
+        der = pag.barras(sistema)[-1]
+        if s["x0"] > min(en_sis) - 1.6 * sp:
+            ligadura = {}
+            ini.setdefault("abre", []).append(ligadura)
+        else:
+            ligadura = pendientes.pop(0) if pendientes else {}
+        if s["x1"] < der:
+            fin.setdefault("cierra", []).append(ligadura)
+        else:
+            pendientes.append(ligadura)
+
+
+def enganchar_articulaciones(pag, sistema, evs_sistema):
+    sp = pag.sp
+    notas = [e for e in evs_sistema if e["tipo"] == "nota"]
+    otras = 0
+    for a in (g for g in pag.it.get("Articulation", []) if pag.sistema_de(g["y"]) is sistema):
+        if (a["y1"] - a["y0"]) / sp >= .3 or not notas:
+            otras += 1  # shortcut: solo se reconoce el tenuto; el resto requiere comparar formas
+            continue
+        e = min(notas, key=lambda e: abs(e["x"] - a["x"]) * 3 + min(abs(h["y"] - a["y"]) for h in e["cabezas"]))
+        e["tenuto"] = True
+    return otras
+
+
+def nota_xml(e, h, chord, slurs, bm):
+    x = ["<note>"]
+    if chord:
+        x.append("<chord/>")
+    if h is None:
+        x.append("<rest/>")
+    else:
+        a = f"<alter>{h['alter']}</alter>" if h["alter"] else ""
+        x.append(f"<pitch><step>{h['step']}</step>{a}<octave>{h['octava']}</octave></pitch>")
+    x.append(f"<duration>{int(duracion(e) * 6)}</duration>")
+    if h and h.get("liga_fin"):
+        x.append('<tie type="stop"/>')
+    if h and h.get("liga_ini"):
+        x.append('<tie type="start"/>')
+    x.append(f"<voice>{e['voz']}</voice><type>{TYPES.get(e['base'], 'quarter')}</type>" + ("<dot/>" if e["puntillo"] else ""))
+    if h and h.get("impresa"):
+        x.append(f"<accidental>{h['impresa']}</accidental>")
+    if "tresillo" in e:
+        x.append(f"<time-modification><actual-notes>{e['tresillo'][0]}</actual-notes><normal-notes>{e['tresillo'][1]}</normal-notes></time-modification>")
+    if h and e["up"] is not None:
+        x.append(f"<stem>{'up' if e['up'] else 'down'}</stem>")
+    if h and e.get("slash"):
+        x.append("<stem>none</stem><notehead>slash</notehead>")
+    x.append(f"<staff>{e['penta'] + 1}</staff>")
+    if h and bm:
+        x.append(f'<beam number="1">{bm}</beam>')
+    n = []
+    if h and h.get("liga_fin"):
+        n.append('<tied type="stop"/>')
+    if h and h.get("liga_ini"):
+        n.append('<tied type="start"/>')
+    if not chord:
+        n += slurs
+        if e.get("t_ini"):
+            n.append('<tuplet type="start" bracket="no" show-number="actual"/>')
+        if e.get("t_fin"):
+            n.append('<tuplet type="stop"/>')
+        if h and e.get("tenuto"):
+            n.append("<articulations><tenuto/></articulations>")
+    if n:
+        x.append("<notations>" + "".join(n) + "</notations>")
+    x.append("</note>")
+    return "".join(x)
+
+
+def convertir(rutas, compas):
+    paginas = [Pagina(r) for r in rutas]
+    primero = paginas[0]
+    n = len(primero.sistemas[0])
+    compases = []  # dict(eventos, sistema, pag, barras, nuevo_sistema, nueva_pagina, x0, x1)
+    articulaciones = 0
+    for np, pag in enumerate(paginas, 1):
+        for ns, sistema in enumerate(pag.sistemas):
+            if len(sistema) != n:
+                aviso(f"página {np}: un sistema con {len(sistema)} pentagramas en vez de {n}; se omite")
+                continue
+            evs, barras = construir_eventos(pag, sistema, np)
+            for i, e in enumerate(evs):
+                pct = {pag.penta_de(sistema, g["y"]) for g in pag.it.get("MeasureRepeat", []) if pag.sistema_de(g["y"]) is sistema and barras[i] <= g["x"] < barras[i + 1]}
+                compases.append(dict(ev=e, pag=pag, sistema=sistema, x0=barras[i], x1=barras[i + 1], pct=pct, nuevo=i == 0 and bool(compases), pagina=i == 0 and ns == 0 and np > 1))
+    # primera pasada: largo del compás; los silencios de compás completo no cuentan
+    largos = Counter()
+    for c in compases:
+        ev = [e for e in c["ev"] if e["base"] is not None]
+        if ev:
+            t, _ = barrer(ev, primero.sp)
+            largos[t] += 1
+    if compas:
+        a, b = map(int, compas.split("/"))
+        largo = F(a * 8, b)
+    else:
+        largo = largos.most_common(1)[0][0] if largos else F(8)
+        aviso(f"compás deducido de las duraciones ({largo} corcheas); no se distingue 6/8 de 3/4: usa --compas para fijarlo")
+    if largo.denominator != 1:
+        sys.exit(f"no se pudo deducir el compás ({largo} corcheas): usa --compas")
+    if compas:
+        num, den = a, b
+    elif largo % 2:
+        num, den = int(largo), 8
+    else:
+        num, den = int(largo) // 2, 4
+    fifths = leer_armadura(primero)
+    alt_key = altera_armadura(fifths)
+    malos = []
+    t_abs = F(0)
+    for idx, c in enumerate(compases, 1):
+        total, fallos = barrer(c["ev"], c["pag"].sp, largo)
+        c["n"], c["largo"], c["t0"] = idx, max(total, F(0)), t_abs
+        if (total != largo and not c["pct"]) or fallos:
+            malos.append(idx)
+        t_abs += total
+        repartir_voces(c["ev"])
+    # claves, alturas: por sistema
+    clave = {i: None for i in range(n)}
+    for c in compases:
+        c["claves"] = []
+    for k, c in enumerate(compases):
+        sistema, pag = c["sistema"], c["pag"]
+        cols = sorted({(e["x"], e["t"]) for e in c["ev"]})
+        for g in sorted((g for g in pag.it.get("Clef", []) if pag.sistema_de(g["y"]) is sistema and c["x0"] <= g["x"] < c["x1"]), key=lambda g: g["x"]):
+            sign = "G" if (g["y1"] - g["y0"]) / pag.sp > 4.5 else "F"
+            penta = pag.penta_de(sistema, g["y"])
+            if clave[penta] == sign:
+                continue
+            clave[penta] = sign
+            siguiente = [t for x, t in cols if x > g["x"]]
+            if siguiente:
+                c["claves"].append((min(siguiente), penta, sign))
+            elif k + 1 < len(compases):
+                compases[k + 1]["claves"].append((F(0), penta, sign))
+    # alturas: la clave vigente en cada cabeza, en orden de tiempo
+    clave = {i: None for i in range(n)}
+    for c in compases:
+        pag, sistema = c["pag"], c["sistema"]
+        cambios = sorted(c["claves"], key=lambda a: a[0])
+        for t, penta, sign in cambios:
+            if t == 0:
+                clave[penta] = sign
+        for e in sorted(c["ev"], key=lambda e: e["t"]):
+            vig = dict(clave)
+            for t, penta, sign in cambios:
+                if t <= e["t"]:
+                    vig[penta] = sign
+            for h in e["cabezas"]:
+                pos = round((sistema[h["penta"]]["bot"] - h["y"]) / (pag.sp / 2))
+                num_paso = CLEF_BASE[vig[h["penta"]]] + pos
+                h["step"], h["octava"] = STEPS[num_paso % 7], num_paso // 7
+        for t, penta, sign in cambios:
+            clave[penta] = sign
+    # alteraciones impresas
+    for c in compases:
+        pag, sistema = c["pag"], c["sistema"]
+        cabezas = [h for e in c["ev"] for h in e["cabezas"]]
+        for a in (g for g in pag.it.get("Accidental", []) if pag.sistema_de(g["y"]) is sistema and c["x0"] <= g["x"] < c["x1"]):
+            cand = [h for h in cabezas if h["x0"] > a["x0"]]
+            if not cand:
+                continue
+            tipo = clase_alteracion(a, pag.sp)
+            off = .2 * pag.sp if tipo == "flat" else 0
+            h = min(cand, key=lambda h: abs(h["y"] - a["y"] - off) + (h["x0"] - a["x1"]) * .2)
+            h["impresa"] = tipo
+    # ligaduras: cada tramo marca su nota de origen; el destino es la siguiente con la misma altura
+    pendientes = []
+    otras = 0
+    for pag in paginas:
+        for sistema in pag.sistemas:
+            evs = [e for c in compases if c["sistema"] is sistema for e in c["ev"]]
+            enganchar_ligaduras(pag, sistema, evs)
+            otras += enganchar_articulaciones(pag, sistema, evs)
+        enganchar_expresion(pag, [c for c in compases if c["pag"] is pag], pendientes)
+    if otras:
+        aviso(f"{otras} articulaciones sin reconocer (solo se lee el tenuto)")
+    todos = [(c["t0"] + e["t"], e, h) for c in compases for e in c["ev"] for h in e["cabezas"]]
+    todos.sort(key=lambda a: a[0])
+    sin_destino = 0
+    for t, e, h in todos:
+        if not h.get("liga"):
+            continue
+        fin = t + duracion(e)
+        cand = [(t2, h2) for t2, e2, h2 in todos if t2 >= fin and not h2.get("liga_fin") and (h2["step"], h2["octava"]) == (h["step"], h["octava"])]
+        if not cand:
+            sin_destino += 1
+            continue
+        h["liga_ini"] = True
+        min(cand, key=lambda a: a[0])[1]["liga_fin"] = True
+    if sin_destino:
+        aviso(f"{sin_destino} ligaduras de prolongación sin nota de destino")
+    # alteración final: armadura + impresas + arrastre dentro del compás + ligada desde el compás anterior
+    PRINT = dict(flat=-1, natural=0, sharp=1)
+    for c in compases:
+        memo = {}
+        for e in sorted(c["ev"], key=lambda e: e["t"]):
+            for h in e["cabezas"]:
+                key = (h["penta"], h["step"], h["octava"])
+                if "impresa" in h:
+                    memo[key] = PRINT[h["impresa"]]
+                h["alter"] = memo.get(key, alt_key.get(h["step"], 0))
+    for i, (t, e, h) in enumerate(todos):  # una nota ligada hereda la alteración de la anterior
+        if h.get("liga_ini"):
+            fin = t + duracion(e)
+            for t2, e2, h2 in todos[i + 1:]:
+                if t2 >= fin and h2.get("liga_fin") and (h2["step"], h2["octava"]) == (h["step"], h["octava"]):
+                    if "impresa" not in h2:
+                        h2["alter"] = h["alter"]
+                    break
+    # barras
+    grupos = {}
+    for c in compases:
+        for e in c["ev"]:
+            if e["barra"] is not None:
+                grupos.setdefault((c["n"], e["barra"]), []).append(e)
+    for g in grupos.values():
+        g.sort(key=lambda e: e["t"])
+        for i, e in enumerate(g):
+            e["bm"] = None if len(g) < 2 else "begin" if i == 0 else "end" if i == len(g) - 1 else "continue"
+    # ligaduras de expresión: un número libre mientras cada una siga abierta
+    orden = [e for _, e in sorted(((c["t0"] + e["t"], e) for c in compases for e in c["ev"]), key=lambda a: a[0])]
+    if pendientes:  # siguen en una página que no tenemos: se cierran en la última nota
+        ultima = next(e for e in reversed(orden) if e["tipo"] == "nota")
+        ultima.setdefault("cierra", []).extend(pendientes)
+    abiertas, libres = {}, list(range(1, 7))
+    for e in orden:
+        e["slurs"] = []
+        for lig in e.get("abre", []):
+            abiertas[id(lig)] = libres.pop(0) if libres else 6
+            e["slurs"].append(f'<slur type="start" number="{abiertas[id(lig)]}"/>')
+        for lig in e.get("cierra", []):
+            if id(lig) in abiertas:
+                numero = abiertas.pop(id(lig))
+                e["slurs"].append(f'<slur type="stop" number="{numero}"/>')
+                libres.append(numero)
+    for m in malos[:20]:
+        aviso(f"el compás {m} no suma {num}/{den}: revísalo")
+    return xml(compases, n, fifths, num, den, largo), compases, malos
+
+
+def xml(compases, n, fifths, num, den, largo):
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">',
+           '<score-partwise version="4.0">',
+           f'<part-list><score-part id="P1"><part-name>Instrumento</part-name></score-part></part-list><part id="P1">']
+    for c in compases:
+        out.append(f'<measure number="{c["n"]}">')
+        if c["pagina"]:
+            out.append('<print new-page="yes"/>')
+        elif c["nuevo"]:
+            out.append('<print new-system="yes"/>')
+        claves = sorted(c["claves"], key=lambda a: a[0])
+        inicio = {p: s for t, p, s in claves if t == 0}
+        if c["n"] == 1:
+            cl = "".join(f'<clef number="{p + 1}"><sign>{s}</sign><line>{2 if s == "G" else 4}</line></clef>' for p, s in sorted(inicio.items()))
+            out.append(f'<attributes><divisions>12</divisions><key><fifths>{fifths}</fifths></key><time><beats>{num}</beats><beat-type>{den}</beat-type></time><staves>{n}</staves>{cl}</attributes>')
+        elif inicio:
+            out.append("<attributes>" + "".join(f'<clef number="{p + 1}"><sign>{s}</sign><line>{2 if s == "G" else 4}</line></clef>' for p, s in sorted(inicio.items())) + "</attributes>")
+        for t, p, s in claves:  # cambio a media medida: antes de las notas, en su tiempo
+            if t:
+                d = int(t * 6)
+                out.append(f'<forward><duration>{d}</duration></forward><attributes><clef number="{p + 1}"><sign>{s}</sign><line>{2 if s == "G" else 4}</line></clef></attributes><backup><duration>{d}</duration></backup>')
+        ant = compases[c["n"] - 2]["pct"] if c["n"] > 1 else set()
+        for p in sorted(c["pct"] - ant):
+            out.append(f'<attributes><measure-style number="{p + 1}"><measure-repeat type="start">1</measure-repeat></measure-style></attributes>')
+        for p in sorted(ant - c["pct"]):
+            out.append(f'<attributes><measure-style number="{p + 1}"><measure-repeat type="stop"/></measure-style></attributes>')
+        cursor = F(0)
+        for p in sorted(c["pct"]):  # el compás con % no lleva notas: un silencio de compás que no se imprime
+            out.append(f'<note print-object="no"><rest measure="yes"/><duration>{int(largo * 6)}</duration><voice>{p * 4 + 1}</voice><staff>{p + 1}</staff></note><backup><duration>{int(largo * 6)}</duration></backup>')
+        for v in sorted({e["voz"] for e in c["ev"]}):
+            if cursor:
+                out.append(f"<backup><duration>{int(cursor * 6)}</duration></backup>")
+                cursor = F(0)
+            for e in sorted((e for e in c["ev"] if e["voz"] == v), key=lambda e: e["t"]):
+                if e["t"] > cursor:
+                    out.append(f'<forward><duration>{int((e["t"] - cursor) * 6)}</duration><voice>{v}</voice><staff>{e["penta_voz"] + 1}</staff></forward>')
+                    cursor = e["t"]
+                if e["tipo"] == "silencio":
+                    out.append(nota_xml(e, None, False, e.get("slurs", []), None))
+                else:
+                    for i, h in enumerate(sorted(e["cabezas"], key=lambda h: -h["y"])):
+                        out.append(nota_xml(e, h, i > 0, e.get("slurs", []), e.get("bm")))
+                cursor = e["t"] + duracion(e)
+        out.append("</measure>")
+    out.append("</part></score-partwise>")
+    return "\n".join(out)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("svg", nargs="+", help="páginas en orden")
+    ap.add_argument("-o", "--salida", required=True)
+    ap.add_argument("--compas", help="por ejemplo 9/8; si falta, 4/4")
+    a = ap.parse_args()
+    if not a.compas:
+        a.compas = "4/4"
+        aviso("no se indicó --compas: se usa 4/4 por defecto")
+    texto, compases, malos = convertir(a.svg, a.compas)
+    Path(a.salida).write_text(texto, encoding="utf-8")
+    notas = sum(len(e["cabezas"]) for c in compases for e in c["ev"])
+    print(f"{a.salida}: {len(compases)} compases, {notas} notas, {len(malos)} compases que no cuadran")
+
+
+if __name__ == "__main__":
+    main()

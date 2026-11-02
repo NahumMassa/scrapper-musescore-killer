@@ -210,7 +210,8 @@ def test_xml_el_siempre_reina_escritorio():
 # Cubre: svg creado por JS, anidado, repetido, uno que solo existe mientras está en pantalla,
 # uno que aparece al desplazar un contenedor interno, y uno que llega por la red como <img>
 RED = '<svg xmlns="http://www.w3.org/2000/svg" id="red"/>'
-PAGINA = """<!DOCTYPE html><body><img src="partitura.svg"><img src="foto.png"><div style="height:5000px"></div><div id="abajo"></div>
+HOJA = '<svg xmlns="http://www.w3.org/2000/svg" id="hoja"/>'
+PAGINA = """<!DOCTYPE html><title>Mi Obra</title><body><img src="partitura.svg"><img src="score_3.svg"><img src="foto.png"><div style="height:5000px"></div><div id="abajo"></div>
 <div id="caja" style="height:300px;overflow:auto"><div style="height:5000px"></div></div><script>
 const svg = id => `<svg id="${id}" viewBox="0 0 1 1"><svg id="${id}-dentro"></svg></svg>`;
 setTimeout(() => document.body.insertAdjacentHTML('afterbegin', svg('a') + svg('a')), 100);
@@ -245,6 +246,7 @@ def _capturar():
         shutil.copy(REPO / "svg_scrape.py", d)  # uvx.exe no arranca bien desde una carpeta de WSL
         (d / "p.html").write_text(PAGINA, encoding="utf-8")
         (d / "partitura.svg").write_text(RED, encoding="utf-8")
+        (d / "score_3.svg").write_text(HOJA, encoding="utf-8")
         (d / "foto.png").write_bytes(b"no es svg")
         manejador = functools.partial(SilencioHandler, directory=str(d))
         servidor = http.server.ThreadingHTTPServer(("127.0.0.1", 0), manejador)
@@ -262,7 +264,7 @@ def _capturar():
             servidor.server_close()
         assert r.returncode == 0, r.stderr[-500:]
         raices = [xml.dom.minidom.parse(str(f)).documentElement for f in sorted((d / "out").glob("svg_*.svg"))]
-        return raices, [f.read_text(encoding="utf-8") for f in (d / "out").glob("red_*.svg")]
+        return raices, [f.read_text(encoding="utf-8") for f in (d / "out").glob("red_*.svg")], sorted(f.name for f in (d / "out").glob("mi_obra_*"))
 
 
 @functools.lru_cache(maxsize=1)
@@ -292,6 +294,10 @@ def test_scrape_guarda_xml_valido_con_xmlns():
 
 def test_scrape_captura_svg_de_la_red_e_ignora_lo_demas():
     assert captura()[1] == [RED], captura()[1]
+
+
+def test_scrape_nombra_la_hoja_con_titulo_y_numero():
+    assert captura()[2] == ["mi_obra_04.svg"], captura()[2]
 
 
 # --- ejecución ---

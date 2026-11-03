@@ -4,114 +4,116 @@ Fecha: 2 de noviembre de 2026. Corresponde a la Fase 2 de [PLAN_MUSICXML.md](PLA
 
 ## Resumen
 
-- **Funciona:** un catálogo de glifos nombrados reconoce signos en partituras que no se usaron para crearlo. El catálogo hecho con Merry reconoce el 92 % de los contornos musicales de Moonlight.
-- **Hace falta un catálogo por fuente:** las partituras web probadas no usan la fuente por defecto de MuseScore 4.
+- **Funciona para lo que el catálogo trae:** el catálogo de Merry reconoce casi todo lo nuevo de Merry y, en Moonlight (que no se usó para nombrar), el 83 % de los contornos de las clases que el script aún no lee, sin contar el tempo. Con el tempo baja al 28 %.
+- **Lo que más interesa falla en Moonlight:** compás 0/2 y dígitos de grupo 0/4. Son justo los dos errores que el plan quiere arreglar primero.
+- **Hace falta un catálogo por fuente:** Midnight da 0/76 con el de Merry.
 - **Todavía no mejora el MusicXML:** `svg2musicxml.py` no lee ningún catálogo.
+- **«Reconocido» no es «bien nombrado»:** la medida solo comprueba que el contorno se parece a uno de su clase.
 
-## Qué se hizo
+## Qué hay
 
 | Archivo | Contenido |
 |---|---|
-| [catalogo.py](catalogo.py) | Escribe un MusicXML por símbolo, lo exporta con MuseScore y guarda el contorno con el nombre que se escribió |
+| [catalogo.py](catalogo.py) | Genera catálogos con MuseScore y mide cuánto reconoce uno sobre SVG reales |
 | [glifos.json](glifos.json) | 97 glifos de la fuente por defecto de MuseScore 4.7.5, generados por el script |
-| [glifos_merry.json](glifos_merry.json) | 46 glifos de la fuente de Merry, nombrados a mano |
-| [pruebas.py](pruebas.py) | 2 pruebas nuevas: la comparación de contornos y la coherencia de `glifos.json`. Pasan 26 de 26 |
-
-Ningún cambio tiene commit todavía. Las hojas usadas para nombrar están fuera del repo, en `resultados/glifos_merry/`.
+| [glifos_merry.json](glifos_merry.json) | 46 glifos de la fuente de Merry, nombrados a mano viendo una hoja con cada contorno. El propio archivo es la fuente de esos nombres |
+| [pruebas.py](pruebas.py) | 3 pruebas del catálogo: comparación de contornos, comparación en los dos sentidos y nombres sin repetir en ambos catálogos |
 
 ## Cómo se comparan los contornos
 
-Cada contorno se guarda como ancho, alto y puntos sobre la curva, en espacios entre líneas y relativos a su caja. Dos contornos son iguales si coinciden con una tolerancia de 0,05 espacios.
+Cada contorno se guarda como ancho, alto y puntos sobre la curva, en espacios entre líneas y relativos a su caja. Dos contornos son iguales si coinciden con tolerancia de 0,05 espacios, en los dos sentidos.
 
-La primera versión comparaba los puntos en orden desde el inicio del glifo y separaba los glifos por `M`. Dio 0 coincidencias en todas las partituras web, y se atribuyó por error a la fuente. Los SVG web escriben el mismo hueco unas veces con `m` y otras con `M`, y pueden empezar el contorno en otro punto. Con la versión actual nada de eso influye.
+No dependen del punto de inicio, del sentido, ni de si el hueco se escribió con `m` o con `M`. Esa dependencia dio 0 coincidencias en la primera versión, y se atribuyó por error a la fuente.
+
+Límites conocidos de la comparación:
+
+- **Variantes del mismo glifo:** en Merry, el cuerpo de la clave de sol sale en 3 variantes que se separan hasta 0,118 espacios (la tolerancia es 0,05), y el «1» del tempo en 2. No se sabe la causa. Un glifo con una variante nueva no se reconocería.
+- **Huecos:** un hueco pequeño puede coincidir con el de otra fuente. Por eso la medida cuenta solo contornos exteriores.
+- **Glifos en varias piezas:** las claves de fa y de do llevan puntos separados del cuerpo, así que se reconocen contorno a contorno, no como glifo completo.
 
 ## Resultados
 
-### Fuente de cada partitura
+Medido con `catalogo.py --medir`. Se cuentan los contornos exteriores de cada clase del catálogo. `Note`, `NoteDot`, `KeySig`, `Clef` y `Accidental` se muestran pero se excluyen del total, porque `svg2musicxml.py` ya las lee sin catálogo y contarlas lo inflaría.
 
-Comparación contra los catálogos de 8 fuentes de MuseScore 4.7.5, con todas las páginas.
+### Catálogo de Merry (`glifos_merry.json`)
 
-| Partitura | Fuente | Evidencia |
+| Partitura | Páginas | Clases nuevas: contornos | Clases nuevas: formas distintas |
+|---|---|---|---|
+| Merry | 7 | 389/393 | 34/38 |
+| **Moonlight** | 4 | **35/124 (28 %)** | 6/40 |
+| Moonlight, sin tempo | 4 | 35/42 (83 %) | 6/9 |
+| Midnight | 3 | 0/76 | 0/11 |
+
+- **Merry** es donde se nombró: no demuestra nada. Los 4 contornos sin reconocer son cuñas de corchetes de grupo, sin nombre a propósito.
+- **Moonlight** no se usó para nombrar, pero ya se había examinado en el plan, así que la medida no es del todo limpia.
+- **Moonlight por clase:**
+
+  | Clase | Contornos |
+  |---|---|
+  | Silencios | 18/18 |
+  | Dinámicas | 15/15 |
+  | Banderas | 1/1 |
+  | Articulaciones | 1/2 |
+  | **Compás** | **0/2** |
+  | **Grupos** | **0/4** |
+  | **Tempo** | **0/82** |
+
+- **Midnight** usa otra fuente: es el resultado esperado.
+- **Clases leídas por el script en Moonlight:** notas 1105/1182, alteraciones 115/119, claves 80/80, armaduras 160/160. Las notas que faltan son de otra forma que Merry no tiene, quizá la redonda.
+
+### Qué fuente usa cada partitura
+
+Comparación contra los catálogos de 8 fuentes de MuseScore 4.7.5, en todas las páginas. **Medida con un script temporal que no está en el repo**, contando también los huecos, así que sirve para orientar y no se puede repetir.
+
+| Partitura | Mejor coincidencia | Evidencia |
 |---|---|---|
-| Merry | Emmentaler de otra versión | Notas 2679/2679 y articulaciones 91/93, pero armaduras 0/296 y alteraciones 0/572 |
-| Moonlight | Emmentaler de otra versión | Notas 1330/1407, pero armaduras 0/320 y alteraciones 0/234 |
-| Midnight | MuseJazz | Claves 115/115, silencios 34/34, notas 468/500, pero armaduras 23/46 y compás 2/4 |
+| Merry | Emmentaler, pero no igual | Notas 2679/2679, articulaciones 91/93; armaduras 0/296, alteraciones 0/572, claves 158/279, compás 32/72, silencios 20/73 |
+| Moonlight | Emmentaler, pero no igual | Notas 1330/1407; armaduras 0/320, alteraciones 0/234, claves 80/140 |
+| Midnight | MuseJazz | Claves 115/115, silencios 34/34, notas 468/500; armaduras 23/46, compás 2/4 |
 
-Que la otra versión sea la de MuseScore 3 es una hipótesis sin comprobar.
+Que Merry y Moonlight vengan de otra versión de Emmentaler (¿MuseScore 3?) es una hipótesis sin comprobar. Se descargó MuseScore 3.6.2, pero el sistema de permisos bloqueó ejecutarlo.
 
-### Catálogo de Merry
+### Catálogo por defecto (`glifos.json`)
 
-| Partitura | Contornos reconocidos | Lectura |
-|---|---|---|
-| Merry | 4494/4498 | Es donde se nombró, no demuestra nada. Los 4 restantes son cuñas de corchetes de grupo, sin nombre a propósito |
-| **Moonlight, sin tempo** | **2038/2205 (92 %)** | La medida útil |
-| Moonlight, tempo | 0/115 | Trae texto y cifras con otra fuente o tamaño |
-| Midnight | 0/892 | Otra fuente; es el resultado esperado |
-
-Contornos de Moonlight sin reconocer, sin contar el tempo:
-
-| Contornos | Clase | Qué parece (solo por sus medidas) |
-|---|---|---|
-| 154 | `Note` | Una cabeza de nota que Merry no tiene, quizá la redonda |
-| 4 | `TimeSig` | Un compás sin dígitos, quizá de compasillo |
-| 4 | `Accidental` | Doble sostenido |
-| 4 | `Tuplet` | Un dígito de grupo con otra forma |
-| 1 | `Articulation` | Sin identificar |
-
-### Catálogo por defecto
-
-Medido sobre la primera página de dos partituras exportadas aquí desde su MusicXML, con el mismo MuseScore.
-
-| Partitura | Notas | Claves | Armaduras | Compás | Silencios |
-|---|---|---|---|---|---|
-| Clair de Lune p. 1 | 403/403 | 58/58 | 100/100 | 10/10 | 18/18 |
-| `ref.musicxml` p. 1 | 88/92 | 40/40 | 60/60 | 5/5 | 38/38 |
-
-Esto solo muestra que el catálogo y la comparación son coherentes. Son referencias ya usadas en el proyecto y con la misma fuente, así que no miden generalización. Las 4 notas sin reconocer no se investigaron.
+Medido en la página 1 de dos partituras exportadas con el mismo MuseScore: Clair de Lune (notas 403/403, claves 58/58, armaduras 100/100, compás 10/10, silencios 18/18) y `ref.musicxml` (notas 88/92 y el resto al 100 %). Solo muestra que el catálogo es coherente consigo mismo; son referencias ya usadas y no miden generalización. Las 4 notas sin reconocer no se investigaron. Esas cifras son anteriores a los cambios de comparación de este reporte.
 
 ## Qué se midió y qué solo se miró
 
-- **Medido:** todos los conteos de las tablas, y que el recuento de letras de dinámicas y de cifras de tempo cuadra con lo que se lee en las hojas de Merry.
-- **Solo mirado:** el resto de nombres de `glifos_merry.json`, incluida la dirección de las banderas. Merry no tiene referencia correcta.
-- **Sin medir:** el efecto en el MusicXML, porque aún no se usa el catálogo.
+- **Medido:** las tablas de Merry, Moonlight y Midnight con `--medir`; que el catálogo regenerado es idéntico al anterior tras los cambios; que ningún catálogo tiene dos nombres con la misma forma.
+- **Solo mirado:** que los nombres de `glifos_merry.json` son correctos (incluida la dirección de las banderas), y el recuento de letras de dinámicas y cifras de tempo contra la hoja de Merry. No hay referencia correcta.
+- **Sin medir:** el efecto en el MusicXML, porque aún no se usa el catálogo, y cuántos reconocimientos son coincidencias.
 
 ## Limitaciones
 
-- **Medida no del todo limpia:** Moonlight no se usó para nombrar, pero ya se había examinado en el plan. Falta una partitura realmente nueva.
-- **Cobertura de `glifos_merry.json`:** solo incluye lo que aparece en Merry, y `pruebas.py` no lo comprueba.
-- **Forma igual, significado distinto:** los silencios de redonda y de blanca son el mismo rectángulo. Hay que distinguirlos por su altura respecto a la línea.
-- **Otras fuentes con `--fuente`:** con Emmentaler da 6 fallos, porque sus dinámicas se parten en otro número de piezas. No se han revisado las demás con la comparación actual.
-- **Sin catálogo:** banderas en `glifos.json`, texto libre, y signos sin forma fija como arpegios y reguladores.
+- **Cobertura de `glifos_merry.json`:** solo incluye lo que aparece en Merry. Le faltan, entre otros, la redonda, el doble sostenido y el «3» de grupo de Moonlight.
+- **Redonda y blanca:** en silencio son el mismo rectángulo. Hay que distinguirlas por su altura respecto a la línea.
+- **`--fuente`:** con Emmentaler da 6 fallos (las dinámicas se parten distinto), y desde este cambio no se escribe ningún catálogo si hay fallos. Las otras fuentes no se han revisado con la comparación actual.
+- **Sin catálogo:** banderas en `glifos.json`, texto libre, y signos sin forma fija (arpegios, reguladores, pedal).
 - **`segno` y `coda`:** en `glifos.json` quedaron bajo `StaffText`; en una partitura real pueden venir con otra clase.
-- **MuseScore 3:** se descargó la versión oficial 3.6.2, pero el sistema de permisos bloqueó ejecutarla. Sus fuentes van compiladas en el binario, así que no se pudieron leer por separado.
+- **Clases sin catálogo en las partituras reales:** además de las líneas, `Text` y `StaffText` (más de 100 contornos por partitura), y en Midnight `Harmony` (403), `TrillSegment` y `RehearsalMark`.
 
 ## Siguientes pasos
 
-1. **Conectar el catálogo a `svg2musicxml.py`.** Empezar por tres errores concretos del plan: compás variable, dígitos de grupo (Merry, compás 23) y tipo de silencio (Merry, compás 4). Una forma desconocida avisa y no se adivina.
-2. **Elegir el catálogo de cada partitura.** Usar el que reconozca más contornos y avisar si ninguno alcanza un mínimo por definir.
-3. **Medir el resultado.** Ampliar `comparar_musicxml.py` y hacer la referencia manual de la página 1 de Merry (Fase 0 del plan), y evaluar con una partitura nueva.
-4. **Ampliar los catálogos.**
-    - Generar el de MuseJazz para Midnight y corregir los fallos de `--fuente`.
-    - Añadir los signos de Moonlight que Merry no tiene, nombrados a mano.
-    - Probar MuseScore 3 si se autoriza ejecutarlo. Si confirma la hipótesis, el catálogo sale completo sin nombrar nada.
-5. **Actualizar la documentación.** `README.md`, y la trampa de `CLAUDE.md` que dice que el compás no se puede leer del SVG.
-
-El texto libre sigue siendo la decisión abierta de la Fase 3 del plan. Los dígitos y letras de tempo y dinámicas ya se reconocen por contorno en Merry, aunque el tempo de Moonlight muestra que no basta con un solo catálogo.
+1. **Completar `glifos_merry.json` con lo de Moonlight:** compás, dígito de grupo, redonda y doble sostenido. Sin eso, el primer arreglo no funcionaría en una partitura no vista.
+2. **Entender las variantes** de la clave de sol y del «1» antes de fiarse de la tolerancia.
+3. **Conectar el catálogo a `svg2musicxml.py`**, empezando por el compás variable, los dígitos de grupo (Merry, compás 23) y el tipo de silencio (Merry, compás 4). Una forma desconocida avisa y no se adivina.
+4. **Elegir el catálogo de cada partitura:** el que más contornos reconozca, avisando si ninguno alcanza un mínimo por definir.
+5. **Medir el resultado** contra una referencia: ampliar `comparar_musicxml.py` y transcribir la página 1 de Merry (Fase 0 del plan). Evaluar además con una partitura que no se haya visto.
+6. **Más catálogos:** MuseJazz para Midnight, y MuseScore 3 si se autoriza ejecutarlo.
+7. **Actualizar la documentación:** `README.md` y la trampa de `CLAUDE.md` que dice que el compás no se puede leer del SVG.
 
 ## Cómo repetirlo
 
 ```bash
-# Catálogo de la fuente por defecto (necesita MuseScore 4 de Windows)
+# Generar el catálogo de la fuente por defecto (necesita MuseScore 4 de Windows).
+# Si algún símbolo falla, no escribe nada
 .venv/bin/python catalogo.py -o glifos.json
 
-# Catálogo de otra fuente
+# Otra fuente
 .venv/bin/python catalogo.py -o glifos_musejazz.json --fuente MuseJazz
 
-# Cuántos contornos de una página reconoce un catálogo
-.venv/bin/python catalogo.py --probar pagina.svg -o glifos_merry.json
-
-# Pruebas
-.venv/bin/python pruebas.py
+# Cuánto reconoce un catálogo; acepta varias páginas
+.venv/bin/python catalogo.py --medir pagina1.svg pagina2.svg -c glifos_merry.json
 ```
 
-`glifos_merry.json` no se regenera con un comando: los nombres se asignaron a mano y el propio archivo es la fuente de esos datos. Los scripts de la comparación entre fuentes y del nombrado fueron temporales y no están en el repo.
+`--medir` no genera ni sobrescribe nada. La tabla de fuentes no se puede repetir con estos comandos.

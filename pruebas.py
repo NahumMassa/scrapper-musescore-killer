@@ -9,6 +9,7 @@ import contextlib
 import functools
 import http.server
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -22,6 +23,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 
+import catalogo
 import comparar_musicxml as comparar
 import svg2musicxml as s
 import svg2pdf
@@ -322,6 +324,40 @@ def main():
             print(f"ok       {nombre}")
     print(f"\n{pasaron} de {len(pruebas)} pruebas pasaron ({fallaron} fallaron, {saltadas} saltadas)")
     sys.exit(1 if fallaron else 0)
+
+
+def test_catalogo_firma_igual_en_ambos_formatos():
+    # el mismo cuadrado con hueco, como lo escribe la web (relativo, 'm') y el escritorio (absoluto, 'M'), a otra escala
+    web = catalogo.contornos("M10 10h10v10h-10m2 -8h6v6h-6", [1, 0, 0, 1, 0, 0])
+    esc = catalogo.contornos("M0,0 L10,0 L10,10 L0,10 M2,2 L8,2 L8,8 L2,8", [2, 0, 0, 2, 100, 100])
+    assert len(web) == 2 and len(esc) == 2
+    # mismo cuadrado empezando por otra esquina y en sentido contrario
+    assert catalogo.iguales(catalogo.firma(catalogo.contornos("M10 0L0 0L0 10L10 10", [1, 0, 0, 1, 0, 0]), 5),
+                            catalogo.firma(catalogo.contornos("M0 0L10 0L10 10L0 10", [1, 0, 0, 1, 0, 0]), 5))
+    # otra forma no coincide
+    assert not catalogo.iguales(catalogo.firma(catalogo.contornos("M0 0L10 0L10 12L0 12", [1, 0, 0, 1, 0, 0]), 5),
+                                catalogo.firma(catalogo.contornos("M0 0L10 0L10 10L0 10", [1, 0, 0, 1, 0, 0]), 5))
+    assert catalogo.iguales(catalogo.firma(web, 5), catalogo.firma(esc, 10))
+
+
+def test_iguales_compara_en_los_dos_sentidos():
+    cuadrado = [[1, 1, [(0, 0), (1, 0), (1, 1), (0, 1)]]]
+    otro = [[1, 1, [(0, 0), (1, 0), (1, 1), (0, 1)]], [1, 1, [(0, 0), (1, 1)]]]
+    assert not catalogo.iguales(cuadrado * 2, otro)  # [x, x] no es [x, y]
+    assert not catalogo.iguales(otro, cuadrado * 2)
+
+
+def test_glifos_json_sin_nombres_repetidos():
+    # dos nombres con la misma forma en una clase harían ambiguo el reconocimiento
+    for nombre, requeridas in (("glifos.json", {"Clef", "TimeSig", "Rest", "Note", "Dynamic"}), ("glifos_merry.json", {"Clef", "TimeSig", "Rest", "Dynamic", "Tempo"})):
+        cat = json.loads((REPO / nombre).read_text())["glifos"]
+        assert requeridas <= set(cat), nombre
+        for clase, v in cat.items():
+            nombres = list(v)
+            for i, a in enumerate(nombres):
+                for b in nombres[:i]:
+                    assert not catalogo.iguales(v[a], v[b]), f"{nombre} {clase}: {a} = {b}"
+    assert all(str(d) in json.loads((REPO / "glifos.json").read_text())["glifos"]["TimeSig"] for d in range(10))
 
 
 if __name__ == "__main__":

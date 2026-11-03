@@ -4,7 +4,9 @@ Cada símbolo se escribe en su propio MusicXML, MuseScore lo exporta a SVG y el 
 adivinar. Un glifo es una lista de contornos, cada uno [ancho, alto, puntos] en espacios entre líneas, con los puntos
 relativos a su caja: así no importan el punto de inicio, el sentido ni si el hueco se escribió con 'm' o con 'M'.
 
-Uso: python catalogo.py [-o glifos.json] [--probar pagina.svg]   (necesita MuseScore 4 de Windows, ver CLAUDE.md)
+Uso (generar necesita MuseScore 4 de Windows, ver CLAUDE.md):
+  python catalogo.py [-o glifos.json] [--fuente Emmentaler]      genera; si algo falla no escribe nada
+  python catalogo.py --medir pagina1.svg [pagina2.svg ...] [-c glifos.json]   cuánto reconoce un catálogo
 """
 import argparse
 import json
@@ -185,7 +187,7 @@ def contornos(d, mat):
 def leer(ruta):
     """(sp, elementos): cada elemento es (clase, [contornos]) de un <path>; el texto de MuseScore trae un elemento por texto."""
     t = Path(ruta).read_text(encoding="utf-8")
-    escritorio = "<polyline" in t  # la web junta todos los glifos de una clase en un <path>; aquí se separan por 'M'
+    escritorio = "<polyline" in t  # la web junta todos los glifos de una clase en un <path>; aquí se separan en contornos
     if escritorio:
         ys = sorted({round(float(y), 2) for pts in re.findall(r'<polyline class="StaffLines"[^>]*? points="([^"]*)"', t)
                      for y in pts.replace(",", " ").split()[1::2]})
@@ -212,8 +214,9 @@ def caja(pts):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def dentro(a, b):
-    return a[0] >= b[0] - 1 and a[1] >= b[1] - 1 and a[2] <= b[2] + 1 and a[3] <= b[3] + 1
+def dentro(a, b, sp):
+    t = TOL * sp
+    return a[0] >= b[0] - t and a[1] >= b[1] - t and a[2] <= b[2] + t and a[3] <= b[3] + t
 
 
 def agrupar(cs, sp):
@@ -231,7 +234,7 @@ def agrupar(cs, sp):
             ancho = min(a[2] - a[0], b[2] - b[0])
             solapa = min(a[2], b[2]) - max(a[0], b[0])
             hueco_y = max(a[1], b[1]) - min(a[3], b[3])
-            if dentro(a, b) or dentro(b, a) or (solapa > .6 * ancho and hueco_y < .6 * sp):
+            if dentro(a, b, sp) or dentro(b, a, sp) or (solapa > .6 * ancho and hueco_y < .6 * sp):
                 grupo[raiz(i)] = raiz(j)
     gs = {}
     for i in range(len(cs)):
@@ -263,7 +266,7 @@ def misma_forma(a, b):
 
 def iguales(a, b):
     """Dos glifos con los mismos contornos, en cualquier orden."""
-    return len(a) == len(b) and all(any(misma_forma(x, y) for y in b) for x in a)
+    return len(a) == len(b) and all(any(misma_forma(x, y) for y in b) for x in a) and all(any(misma_forma(x, y) for x in a) for y in b)
 
 
 def glifos_de(els, sp, texto):
@@ -341,41 +344,73 @@ def generar(salida, fuente=None):
                 previo = cat.setdefault(clase, {}).setdefault(nombre, f)
                 if not iguales(previo, f):
                     fallos.append(f"{e['nombre']}: {clase}/{nombre} no coincide con otra entrada")
-    Path(salida).write_text(json.dumps(dict(
-        fuente=f"MuseScore 4, {fuente or 'fuente por defecto'}", unidad="glifo = lista de contornos [ancho, alto, puntos], en espacios entre líneas", tolerancia=TOL, glifos=cat),
-        separators=(",", ":")))
     for c, v in cat.items():
         print(f"{c}: {len(v)} glifos")
     for f in fallos:
         print("FALLO", f)
+    if fallos:
+        print(f"No se escribió {salida}: hay {len(fallos)} fallos")
+    else:
+        Path(salida).write_text(json.dumps(dict(
+            fuente=f"MuseScore 4, {fuente or 'fuente por defecto'}", unidad="glifo = lista de contornos [ancho, alto, puntos], en espacios entre líneas",
+            tolerancia=TOL, glifos=cat), separators=(",", ":")))
     return fallos
 
 
-def probar(ruta, catalogo):
-    """Cuántos contornos de un SVG real se reconocen con el catálogo, por clase."""
+# clases que svg2musicxml.py ya lee sin catálogo: medirlas inflaría el resultado
+LEIDAS = {"Note", "NoteDot", "KeySig", "Clef", "Accidental"}
+
+
+def medir(rutas, catalogo):
+    """Por clase: contornos exteriores (los huecos no cuentan) y formas distintas que reconoce el catálogo.
+
+    Reconocer es solo que el contorno se parezca a alguno de su clase: no comprueba que el nombre sea el correcto."""
     cat = json.loads(Path(catalogo).read_text())["glifos"]
-    sp, els = leer(ruta)
-    cuenta = {}
-    for clase, cs in els:
-        if clase not in cat:
-            continue
-        for c in cs:
-            if len(c) > 1:
-                f = forma(c, sp)
-                a = cuenta.setdefault(clase, [0, 0])
-                a[0] += any(misma_forma(f, o) for g in cat[clase].values() for o in g)
-                a[1] += 1
-    for c, (ok, n) in cuenta.items():
-        print(f"{c}: {ok} de {n} contornos reconocidos")
+    formas = {}  # clase -> [[forma, veces, reconocida]]
+    sin_catalogo = {}
+    for ruta in rutas:
+        sp, els = leer(ruta)
+        por_clase = {}
+        for clase, cs in els:
+            por_clase.setdefault(clase, []).extend(x for x in cs if len(x) > 1)
+        for clase, cs in por_clase.items():
+            if clase not in cat:
+                sin_catalogo[clase] = sin_catalogo.get(clase, 0) + len(cs)
+                continue
+            cajas = [caja(x) for x in cs]
+            for i, x in enumerate(cs):
+                if any(j != i and dentro(cajas[i], cajas[j], sp) and not dentro(cajas[j], cajas[i], sp) for j in range(len(cs))):
+                    continue
+                f = forma(x, sp)
+                for u in formas.setdefault(clase, []):
+                    if misma_forma(f, u[0]):
+                        u[1] += 1
+                        break
+                else:
+                    formas[clase].append([f, 1, any(misma_forma(f, o) for g in cat[clase].values() for o in g)])
+    filas = []
+    print(f"{len(rutas)} páginas, catálogo {catalogo}")
+    print(f"{'clase':<14}{'contornos':>16}{'formas distintas':>20}")
+    tot = [0, 0, 0, 0]
+    for clase, fs in formas.items():
+        ok, n = sum(u[1] for u in fs if u[2]), sum(u[1] for u in fs)
+        fo, fn = sum(u[2] for u in fs), len(fs)
+        print(f"{clase:<14}{f'{ok}/{n}':>16}{f'{fo}/{fn}':>20}" + ("   (el script ya la lee)" if clase in LEIDAS else ""))
+        if clase not in LEIDAS:
+            tot = [tot[0] + ok, tot[1] + n, tot[2] + fo, tot[3] + fn]
+    print(f"{'sin las leídas':<14}{f'{tot[0]}/{tot[1]}':>16}{f'{tot[2]}/{tot[3]}':>20}")
+    print("clases sin catálogo (contornos):", dict(sorted(sin_catalogo.items(), key=lambda kv: -kv[1])))
+    return formas
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("-o", default="glifos.json")
-    ap.add_argument("--probar", metavar="SVG")
+    ap.add_argument("-o", default="glifos.json", help="archivo que se genera")
     ap.add_argument("--fuente", help="fuente musical de MuseScore (Emmentaler, Bravura, Petaluma...); sin ella, la por defecto")
+    ap.add_argument("--medir", nargs="+", metavar="SVG", help="mide cuánto reconoce el catálogo -c en esos SVG, sin generar nada")
+    ap.add_argument("-c", default="glifos.json", help="catálogo que usa --medir")
     a = ap.parse_args()
-    if a.probar:
-        probar(a.probar, a.o)
+    if a.medir:
+        medir(a.medir, a.c)
     else:
         sys.exit(bool(generar(a.o, a.fuente)))

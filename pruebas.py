@@ -215,8 +215,8 @@ def test_xml_el_siempre_reina_escritorio():
 
 def test_xml_night_dreamer_escritorio():
     # SVG exportados por MuseScore desde la referencia: 8va, adornos, seisillos, cambios de compás y casillas
-    d = PARTITURAS / "test/night_dreamer_piano"
-    ref = PARTITURAS / "referencias/night-dreamer-t-square-full-arrangement-Piano.musicxml"
+    d = PARTITURAS / "test/Prueba_script/svg_test/night_dreamer"
+    ref = PARTITURAS / "test/Prueba_script/xml_originales/night-dreamer-t-square-full-arrangement-Piano.musicxml"
     r = calificar([str(d / f"piano-{i}.svg") for i in range(1, 11)], ref, None)
     assert r["ok"] == r["ref"] == r["res"], f"{r['ok']} de {r['ref']} notas, {r['res']} escritas"
     assert r["sil_ok"] == r["sil_ref"] == r["sil_res"]

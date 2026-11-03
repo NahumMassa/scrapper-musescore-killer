@@ -215,9 +215,12 @@ class Pagina:
 
 def clase_alteracion(g, sp):
     """Sin depender del tamaño ni de la fuente: el bemol lleva el hueco abajo; el becuadro es más estrecho que el sostenido."""
+    proporcion = (g["x1"] - g["x0"]) / (g["y1"] - g["y0"])
     if g.get("hueco_y", .5) > .6:
-        return "flat"
-    return "natural" if (g["x1"] - g["x0"]) / (g["y1"] - g["y0"]) < .3 else "sharp"
+        return "flat-flat" if proporcion > .5 else "flat"
+    if proporcion > .8:  # el doble sostenido es una cruz casi cuadrada
+        return "double-sharp"
+    return "natural" if proporcion < .3 else "sharp"
 
 
 def leer_armaduras(pag):
@@ -1041,7 +1044,7 @@ def convertir(rutas, compas, defecto=None):
             if not cand:
                 continue
             tipo = clase_alteracion(a, pag.sp)
-            off = .2 * pag.sp if tipo == "flat" else 0
+            off = .2 * pag.sp if tipo in ("flat", "flat-flat") else 0
             h = min(cand, key=lambda h: abs(h["y"] - a["y"] - off) + (h["x0"] - a["x1"]) * .2)
             h["impresa"] = tipo
     # ligaduras: cada tramo marca su nota de origen; el destino es la siguiente con la misma altura
@@ -1073,12 +1076,12 @@ def convertir(rutas, compas, defecto=None):
     if sin_destino:
         aviso(f"{sin_destino} ligaduras de prolongación sin nota de destino")
     # alteración final: armadura + impresas + arrastre dentro del compás + ligada desde el compás anterior
-    PRINT = dict(flat=-1, natural=0, sharp=1)
+    PRINT = {"flat-flat": -2, "flat": -1, "natural": 0, "sharp": 1, "double-sharp": 2}
     for c in compases:
         memo = {}
         for e in sorted(c["ev"], key=lambda e: e["t"]):
             for h in e["cabezas"]:
-                key = (h["penta"], h["step"], h["octava"])
+                key = (h["penta"], h["step"], h["octava"] - h["sube"])  # la alteración sigue a la nota escrita, no a la que suena con 8va
                 if "impresa" in h:
                     memo[key] = PRINT[h["impresa"]]
                 h["alter"] = memo.get(key, altera_armadura(c["fifths"]).get(h["step"], 0))

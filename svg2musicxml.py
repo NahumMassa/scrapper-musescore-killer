@@ -365,7 +365,8 @@ def construir_eventos(pag, sistema, npag):
             # igual de altos: la semicorchea (dos banderas) es más ancha que la negra (~1,37 sp frente a ~0,94)
             base = F(1, 2) if (r["x1"] - r["x0"]) / sp > 1.15 else F(2)
         d = any(0 < p["x"] - r["x1"] < 1.5 * sp and abs(p["y"] - r["y"]) <= sp for p in dots)
-        eventos.append(dict(tipo="silencio", base=base, cabezas=[], up=None, plica=False, x=r["x"], barra=None, penta=penta, y=r["y"], puntillo=d))
+        eventos.append(dict(tipo="silencio", base=base, cabezas=[], up=None, plica=False, x=r["x"], barra=None, penta=penta, y=r["y"], puntillo=d,
+                            completo=base is None))
     for e in eventos:
         e["factor"] = F(1)
     aplicar_tresillos(pag, sistema, eventos, en_sistema)
@@ -565,7 +566,11 @@ def barrer(eventos, sp, largo=None):
     t, total, fallos = F(0), F(0), 0
     activos = []
     adornos = [e for e in eventos if e.get("adorno")]
-    for col in columnas([e for e in eventos if not e.get("adorno")], sp):
+    for e in eventos:  # el silencio de compás entero va centrado en el compás, pero empieza al principio
+        if e.get("completo"):
+            e["t"], e["base"] = F(0), largo if largo else F(0)
+            total = max(total, e["base"])
+    for col in columnas([e for e in eventos if not e.get("adorno") and not e.get("completo")], sp):
         if activos or t:
             futuros = [f for f in activos if f > t]
             if futuros:
@@ -575,8 +580,6 @@ def barrer(eventos, sp, largo=None):
                 t = total
         for e in col:
             e["t"] = t
-            if e["base"] is None:
-                e["base"] = largo if largo else F(0)
             d = duracion(e)
             activos.append(t + d)
             total = max(total, t + d)

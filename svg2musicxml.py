@@ -282,7 +282,9 @@ def construir_eventos(pag, sistema, npag):
             ocupada = lambda s: any(abs(o["y"] - n["y"]) < .2 * sp and abs(o["x"] - n["x"]) < .2 * sp for o in s["cabezas"])
             con_barra = lambda s: any(b["x0"] - .2 * sp <= s["x"] <= b["x1"] + .2 * sp and (b["y0"] - .25 * sp <= s["y0"] <= b["y1"] + .25 * sp
                                       or b["y0"] - .25 * sp <= s["y1"] <= b["y1"] + .25 * sp) for b in beams)
-            min(c, key=lambda s: (ocupada(s), bool(n["huecos"]) and con_barra(s), min(abs(n["x0"] - s["x"]), abs(n["x1"] - s["x"]))))["cabezas"].append(h)
+            # a igual distancia, la plica más corta: la punta de una plica larga de otra voz puede tocar la cabeza
+            min(c, key=lambda s: (ocupada(s), bool(n["huecos"]) and con_barra(s), round(min(abs(n["x0"] - s["x"]), abs(n["x1"] - s["x"])) / (.1 * sp)),
+                                  s["y1"] - s["y0"]))["cabezas"].append(h)
             tocadas.append((h, c))
         else:
             sin_plica.append(h)

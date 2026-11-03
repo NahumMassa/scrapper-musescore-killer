@@ -326,17 +326,18 @@ def construir_eventos(pag, sistema, npag):
                   penta=hs[0]["penta"], extremo=extremo,
                   adorno=all(h["x1"] - h["x0"] < .8 * pag.cabeza for h in hs))  # cabeza pequeña: nota de adorno
         eventos.append(ev)
-    for h in sin_plica:  # redondas: sin plica; las de un mismo acorde comparten columna
+    for h in sin_plica:  # redondas: sin plica; las de un mismo acorde comparten columna. Se alinean por el borde
+        # izquierdo como una cabeza normal: la redonda es más ancha y su centro queda a la derecha
         # en una segunda, una de las dos cabezas va desplazada a un lado (~1,4 sp)
         mismo = lambda e: any(abs(o["x"] - h["x"]) < sp or abs(o["x"] - h["x"]) < 1.8 * sp and abs(o["y"] - h["y"]) < .75 * sp for o in e["cabezas"])
         ev = next((e for e in eventos if not e["plica"] and e["penta"] == h["penta"] and mismo(e)), None)
         if ev:
             ev["cabezas"].append(h)
-            ev["x"] = sorted(o["x"] for o in ev["cabezas"])[len(ev["cabezas"]) // 2]  # la columna principal, no la desplazada
+            ev["x"] = sorted(o["x0"] for o in ev["cabezas"])[len(ev["cabezas"]) // 2] + pag.cabeza / 2  # la columna principal, no la desplazada
         else:
             # shortcut: la barra diagonal de ritmo se toma por negra; si hay blancas en barra, saldrán negras
             barra_ritmo = (h["x1"] - h["x0"]) / sp > 1.9 and (h["y1"] - h["y0"]) / sp > 1.5  # la redonda es igual de ancha en algunas fuentes, pero baja
-            eventos.append(dict(tipo="nota", base=F(2) if barra_ritmo else F(8), cabezas=[h], up=None, plica=False, x=h["x"], barra=None, penta=h["penta"], extremo=h["y"], slash=barra_ritmo))
+            eventos.append(dict(tipo="nota", base=F(2) if barra_ritmo else F(8), cabezas=[h], up=None, plica=False, x=h["x0"] + pag.cabeza / 2, barra=None, penta=h["penta"], extremo=h["y"], slash=barra_ritmo))
     en_espacio = [h for o in eventos for h in o["cabezas"] if round((h["y"] - sistema[h["penta"]]["top"]) / (sp / 2)) % 2]
     libres = [d for d in dots if not any(tiene_puntillo(h, None, d, sistema, sp) for h in en_espacio)]
     for e in eventos:

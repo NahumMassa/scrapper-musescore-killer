@@ -35,7 +35,7 @@ import web
 
 REPO = Path(__file__).parent
 PARTITURAS = Path("/mnt/d/Nahum/omr_partituras")
-RES = PARTITURAS / "resultados/svg"
+RES = PARTITURAS / "test/svg"
 SVG_MINIMO = '<svg xmlns="http://www.w3.org/2000/svg"/>'
 
 
@@ -209,6 +209,15 @@ def test_xml_clair_de_lune_web():
 def test_xml_el_siempre_reina_escritorio():
     ciega = RES / "prueba_ciega"
     r = calificar(sorted(map(str, ciega.glob("er-*.svg"))), ciega / "ref.musicxml", "6/8")
+    assert r["ok"] == r["ref"] == r["res"], f"{r['ok']} de {r['ref']} notas, {r['res']} escritas"
+    assert r["sil_ok"] == r["sil_ref"] == r["sil_res"]
+
+
+def test_xml_night_dreamer_escritorio():
+    # SVG exportados por MuseScore desde la referencia: 8va, adornos, seisillos, cambios de compás y casillas
+    d = PARTITURAS / "test/night_dreamer_piano"
+    ref = PARTITURAS / "referencias/night-dreamer-t-square-full-arrangement-Piano.musicxml"
+    r = calificar([str(d / f"piano-{i}.svg") for i in range(1, 11)], ref, None)
     assert r["ok"] == r["ref"] == r["res"], f"{r['ok']} de {r['ref']} notas, {r['res']} escritas"
     assert r["sil_ok"] == r["sil_ref"] == r["sil_res"]
 

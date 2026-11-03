@@ -28,7 +28,7 @@ El nombre del repo viene de una fase anterior basada en reconocimiento óptico d
 | Descarga de SVG | [svg_scrape.py](svg_scrape.py) baja partituras completas de musescore.com (4 y 23 hojas probadas); reintentos y rechazos sin probar |
 | Todo en un paso | [partitura.py](partitura.py): enlace → PDF + MusicXML; probado con un enlace |
 | Página | [web.py](web.py): Home, Convertir y Práctica; pipeline probada solo contra una página local |
-| Pruebas | [pruebas.py](pruebas.py): 47 de 47 pasan |
+| Pruebas | [pruebas.py](pruebas.py): 48 de 48 pasan |
 
 ## Partituras generadas
 
@@ -126,8 +126,10 @@ Los errores de lectura de una nota no van aquí: se reparan en la revisión. Si 
 ### 2. Script: `svg2musicxml.py`
 
 ```bash
-python svg2musicxml.py pagina1.svg pagina2.svg -o /mnt/d/Nahum/omr_partituras/svg_to_xml/mi_partitura.musicxml --compas 9/8
+python svg2musicxml.py pagina1.svg pagina2.svg -o /mnt/d/Nahum/omr_partituras/svg_to_xml/mi_partitura.musicxml
 ```
+
+Las cifras de compás se leen del SVG, cambios incluidos, si usan la fuente por defecto de MuseScore 4 (se comparan con [glifos.json](glifos.json)). Si no se reconocen, vale `--compas 9/8`, y sin él 4/4.
 
 Los MusicXML se guardan en `D:\Nahum\omr_partituras\svg_to_xml`.
 
@@ -137,7 +139,8 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 - **Figura:** cabeza hueca o llena, plica, barras, corchete y puntillo.
 - **Ritmo:** agrupa por columnas; cada columna empieza cuando termina la nota sonando que acaba antes.
 - **Voces:** las reparte sin que se pisen; un grupo con barra va entero a la misma voz.
-- **Otros:** ligaduras de ambos tipos, dosillos, tresillos, tenutos y signos `%`.
+- **Otros:** ligaduras de ambos tipos, grupos irregulares, notas de adorno, 8va, arpegios, repeticiones, casillas y signos `%`.
+- **Con el catálogo de glifos:** cifras de compás, articulaciones, fermatas y dinámicas.
 
 **Resultados.** Una nota es correcta si coinciden compás, tiempo, duración, nombre, alteración y octava.
 
@@ -145,6 +148,7 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 |---|---|---|
 | Clair de Lune, página 1 (SVG web) | 345 de 345 | El script se afinó con ella |
 | Él siempre reina | 119 de 119 | También se retocó con ella |
+| Night Dreamer, reducción de piano (escritorio) | 3329 de 3329 | Se afinó con ella: empezó en 55,4 % |
 | Audiveris, Beethoven II | 409 de 421 (97,1 %) | Entrada de OMR |
 | homr, Beethoven p4 | 357 de 394 (90,6 %) | Entrada de OMR |
 | homr, Beethoven p10 | 421 de 475 (88,6 %) | Entrada de OMR |
@@ -155,7 +159,7 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 
 **Estas 7 filas no miden el script.** Son SVG que salieron de motores OMR (Audiveris y homr) y que MuseScore exportó con sus errores y compases que no cuadran. Se conservan solo para comparar entre sí, no como la precisión del script con partituras reales. Con esos archivos el rango fue de 3,5 % a 97,1 %, que no sirve como medida.
 
-**Pendiente: repetir la medición** con partituras de MuseScore bien hechas que el script no haya visto, y con una referencia correcta. Hasta entonces no hay cifra fiable de generalización; las dos primeras filas se usaron para afinar el script.
+**Pendiente: repetir la medición** con partituras de MuseScore bien hechas que el script no haya visto, y con una referencia correcta. Hasta entonces no hay cifra fiable de generalización; las tres primeras filas se usaron para afinar el script.
 
 **Problemas conocidos** (observados con esas entradas de OMR, sin confirmar con partituras limpias):
 
@@ -166,11 +170,10 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 
 **No hace:**
 
-- Texto: título, tempo, dinámicas, acordes y letra vienen como contornos.
-- Repeticiones, casillas y reguladores.
-- Articulaciones distintas del tenuto.
-- Cambios de compás o armadura, y claves distintas de sol y fa.
-- Notas de adorno, que trata como notas normales.
+- Texto: título, tempo, acordes, marcas de ensayo y letra vienen como contornos.
+- Reguladores, cambios de armadura y claves distintas de sol y fa.
+- Casillas en SVG web: solo se leen en el de escritorio.
+- Saltos (D.C., D.S., coda): las repeticiones y casillas se escriben, pero no se reordena nada.
 
 ### 3. Comparación
 
@@ -261,13 +264,13 @@ Todas están en [pruebas.py](pruebas.py). Cada una corre por separado y al final
 ok       test_pdf_rechaza_0_bytes
 ok       test_xml_clair_de_lune_web
 ...
-47 de 47 pruebas pasaron (0 fallaron, 0 saltadas)
+48 de 48 pruebas pasaron (0 fallaron, 0 saltadas)
 ```
 
 | Script | Pruebas | Qué cubren |
 |---|---|---|
 | `svg2pdf.py` | 9 | SVG vacío, cortado o que no es SVG; orden de páginas; un PDF real generado con Chrome |
-| `svg2musicxml.py` | 11 | Lectura de contornos, matrices y armaduras; SVG vacío o ajeno; Clair de Lune y Él siempre reina nota por nota |
+| `svg2musicxml.py` | 12 | Lectura de contornos, matrices y armaduras; SVG vacío o ajeno; Clair de Lune, Él siempre reina y Night Dreamer nota por nota |
 | `svg_scrape.py` | 4 | SVG creados por JS, anidados, repetidos, efímeros, en contenedores con desplazamiento, recibidos por la red y nombrado `<título>_NN` |
 | `partitura.py` | 0 | Sin pruebas propias |
 | `web.py` e `index.html` | 8 | Rutas servidas, orígenes, validación, comando y orden de hojas, un trabajo a la vez, PDF y MusicXML reales, y el formulario en Chrome con scripts falsos |

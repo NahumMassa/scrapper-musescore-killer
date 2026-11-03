@@ -11,7 +11,7 @@ No uses OMR (Audiveris, homr) ni amplíes la entrada a PDF o escaneos: esa fase 
   - `svg_partituras/`: SVG de entrada. Su contenido cambia; míralo antes de nombrar una salida.
   - `svg_to_pdf/`: los PDF.
   - `svg_to_xml/`: los MusicXML.
-  - `resultados/`: pruebas y referencias, no entregables.
+  - `test/`: pruebas y referencias, no entregables.
 - Python: `.venv/bin/python` (3.14). `svg2pdf.py`, `svg2musicxml.py`, `comparar_musicxml.py` y `partitura.py` solo usan la biblioteca estándar.
 - Chrome: `/mnt/c/Program Files/Google/Chrome/Application/chrome.exe`. Solo se ha probado con archivos en `D:`.
 - MuseScore: `/mnt/c/Program Files/MuseScore 4/bin/MuseScore4.exe`. Para ver un resultado: `-r 110 -o salida.png entrada.musicxml`. Sin `-r`, las imágenes salen demasiado grandes.
@@ -47,8 +47,8 @@ No uses OMR (Audiveris, homr) ni amplíes la entrada a PDF o escaneos: esa fase 
 
 ## Cómo evaluar
 
-- Compara contra una respuesta correcta, no a simple vista. Referencias: `resultados/svg/Clair_de_Lune_p1.musicxml` y `resultados/svg/prueba_ciega/ref.musicxml`, con `comparar_musicxml.py`.
-- Las dos referencias sirvieron para afinar el script: su 100 % no demuestra que generalice. Mide también con partituras que no hayas visto antes de escribir el arreglo; las de `resultados/svg/prueba_ciega/otras/` ya se usaron una vez, así que necesitarás otras para una medida limpia.
+- Compara contra una respuesta correcta, no a simple vista. Referencias: `test/svg/Clair_de_Lune_p1.musicxml` y `test/svg/prueba_ciega/ref.musicxml`, con `comparar_musicxml.py`.
+- Las dos referencias sirvieron para afinar el script: su 100 % no demuestra que generalice. Mide también con partituras que no hayas visto antes de escribir el arreglo; las de `test/svg/prueba_ciega/otras/` ya se usaron una vez, así que necesitarás otras para una medida limpia.
 - Un compás que suma bien puede tener notas equivocadas.
 - Una imagen idéntica no garantiza un dato correcto: el mismo error puede leerse y escribirse igual.
 - Di qué se midió y qué solo se miró.

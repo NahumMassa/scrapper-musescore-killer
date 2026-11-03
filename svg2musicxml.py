@@ -341,7 +341,17 @@ def construir_eventos(pag, sistema, npag):
     en_espacio = [h for o in eventos for h in o["cabezas"] if round((h["y"] - sistema[h["penta"]]["top"]) / (sp / 2)) % 2]
     libres = [d for d in dots if not any(tiene_puntillo(h, None, d, sistema, sp) for h in en_espacio)]
     for e in eventos:
-        e["puntillo"] = any(tiene_puntillo(h, e["up"], d, sistema, sp, any(d is o for o in libres)) for h in e["cabezas"] for d in dots)
+        e["puntillo"] = False
+    # cada punto, de una sola cabeza a su izquierda: primero la que lo tiene a su misma altura (en un espacio), luego
+    # la más cercana; así no se lo queda la nota anterior ni la de otra voz que tiene el suyo en el otro espacio
+    for d in dots:
+        cand = [(abs(d["y"] - h["y"]) > .25 * sp, d["x"] - h["x1"], e) for e in eventos for h in e["cabezas"]
+                if tiene_puntillo(h, e["up"], d, sistema, sp, any(d is o for o in libres))]
+        if cand:
+            lejos, cerca, _ = min(cand, key=lambda a: a[:2])
+            for l, dx, e in cand:
+                if l == lejos and dx < cerca + .3 * sp:
+                    e["puntillo"] = True
     for r in (g for g in it.get("Rest", []) if en_sistema(g)):
         penta = pag.penta_de(sistema, r["y"])
         alto = (r["y1"] - r["y0"]) / sp

@@ -449,7 +449,7 @@ def aplicar_tresillos(pag, sistema, eventos, en_sistema):
         miembros = sorted(miembros, key=lambda e: e["x"])
         marcar_grupo(miembros, real, normal)
         # la voz paralela puede llevar el mismo ritmo sin número impreso
-        junto = [[o for o in eventos if abs(o["x"] - e["x"]) < 1.5 * sp and "tresillo" not in o and o["base"] == e["base"]] for e in miembros]
+        junto = [[o for o in eventos if abs(o["x"] - e["x"]) < .7 * sp and "tresillo" not in o and o["base"] == e["base"]] for e in miembros]
         for penta in {o["penta"] for o in junto[0]}:
             paralelos = [[o for o in c if o["penta"] == penta] for c in junto]
             if all(len(c) == 1 for c in paralelos):

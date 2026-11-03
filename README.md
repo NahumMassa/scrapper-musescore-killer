@@ -10,7 +10,7 @@ Convierte partituras en SVG exportadas de MuseScore en un PDF para imprimir y un
 | **Flujo 1** | SVG → PDF para imprimir. |
 | **Flujo 2** | SVG → MusicXML para abrir y editar en MuseScore. |
 | **Propuesta: práctica** | Tocar fragmentos del MusicXML revisado con un MiniLab 3 y saber si se tocaron bien. Sin construir. |
-| **Fuera de alcance** | PDF, escaneos, fotos y SVG de otros programas. Cómo conseguir los SVG tampoco es parte de los flujos. |
+| **Fuera de alcance** | PDF, escaneos, fotos y SVG de otros programas. Bajar los SVG de MuseScore no es parte de los flujos; lo hace [svg_scrape.py](#descarga-de-svg-svg_scrapepy), y [partitura.py](#todo-en-un-paso-partiturapy) encadena todo desde un enlace. |
 
 El nombre del repo viene de una fase anterior basada en reconocimiento óptico de música (OMR). Se descartó porque el SVG ya trae cada símbolo con sus coordenadas: en una partitura difícil, Audiveris y homr acertaban cerca del 95 % de las notas, y además hay que corregir a mano lo que confunden.
 
@@ -24,7 +24,9 @@ El nombre del repo viene de una fase anterior basada en reconocimiento óptico d
 | Flujo 2: convenciones | Sin construir |
 | Flujo 2: revisión humana | Se hace en MuseScore; falta la lista de diferencias que la guíe |
 | App de práctica | Sin construir; primero hay que probar las que ya existen |
-| Pruebas | [pruebas.py](pruebas.py): 23 de 23 pasan |
+| Descarga de SVG | [svg_scrape.py](svg_scrape.py) baja partituras completas de musescore.com (4 y 23 hojas probadas); reintentos y rechazos sin probar |
+| Todo en un paso | [partitura.py](partitura.py): enlace → PDF + MusicXML; probado con un enlace |
+| Pruebas | [pruebas.py](pruebas.py): 24 de 24 pasan |
 
 ## Partituras generadas
 
@@ -32,6 +34,7 @@ El nombre del repo viene de una fase anterior basada en reconocimiento óptico d
 |---|---|---|
 | Clair de Lune, página 1 | Generado | Comprobado contra el SVG; no se ha escuchado |
 | Midnight Rendezvous, 3 páginas | Generado; no se ha mirado | **Sin revisar** |
+| Sonata «Moonlight» 1.er mov., 4 hojas (con `partitura.py`) | Generado; no se ha mirado | **Sin revisar**; 67 de 69 compases no suman 4/4 |
 
 En Midnight Rendezvous, el script dedujo 4/4 sin confirmarlo y el compás 1 no suma, sin saber si es una anacrusa o un error. No hay referencia, así que se desconoce cuántas notas acertó. Trae trinos, acordes, casillas de repetición, marcas de ensayo, tempo y otros textos que el script no conserva: hay que añadirlos en la revisión. Sin las repeticiones, el orden de reproducción no es el del original.
 
@@ -42,7 +45,7 @@ En Midnight Rendezvous, el script dedujo 4/4 sin confirmarlo y el compás 1 no s
 Con [svg2pdf.py](svg2pdf.py), desde WSL, indicando una carpeta de Windows que contenga solo los SVG de una partitura:
 
 ```bash
-python svg2pdf.py /mnt/d/Nahum/omr_partituras/svg_partituras mi_partitura
+python svg2pdf.py /mnt/d/Nahum/omr_partituras/svg_partituras/mi_partitura mi_partitura
 ```
 
 El PDF se guarda en `D:\Nahum\omr_partituras\svg_to_pdf\mi_partitura.pdf`. Las páginas siguen el orden numérico: `score_2` va antes que `score_10`.
@@ -232,18 +235,19 @@ Todas están en [pruebas.py](pruebas.py). Cada una corre por separado y al final
 ok       test_pdf_rechaza_0_bytes
 ok       test_xml_clair_de_lune_web
 ...
-23 de 23 pruebas pasaron (0 fallaron, 0 saltadas)
+24 de 24 pruebas pasaron (0 fallaron, 0 saltadas)
 ```
 
 | Script | Pruebas | Qué cubren |
 |---|---|---|
 | `svg2pdf.py` | 9 | SVG vacío, cortado o que no es SVG; orden de páginas; un PDF real generado con Chrome |
 | `svg2musicxml.py` | 11 | Lectura de contornos, matrices y armaduras; SVG vacío o ajeno; Clair de Lune y Él siempre reina nota por nota |
-| `svg_scrape.py` | 3 | SVG creados por JS, anidados, repetidos, efímeros, en contenedores con desplazamiento y recibidos por la red |
+| `svg_scrape.py` | 4 | SVG creados por JS, anidados, repetidos, efímeros, en contenedores con desplazamiento, recibidos por la red y nombrado `<título>_NN` |
+| `partitura.py` | 0 | Sin pruebas propias |
 
 - **Si una falla:** las demás siguen corriendo y el script termina con código 1.
 - **Si falta algo:** una prueba que necesita un archivo de `D:` o un programa de Windows sale como «saltada» y no cuenta como pasada.
-- **Ventana de Chrome:** las pruebas de `svg_scrape` abren una durante unos 13 segundos. Usan un perfil temporal (`SVG_SCRAPE_PERFIL`) para no tocar el real.
+- **Ventana de Chrome:** las pruebas de `svg_scrape` abren una durante unos 13 segundos. Lanzan Chrome por depuración remota con un perfil temporal (`SVG_SCRAPE_PERFIL`) para no tocar el real.
 - **Sin pruebas propias:** `comparar_musicxml.py` solo se usa dentro de las de partituras, y `svg_html.py` no tiene ninguna.
 - **Su alcance:** las dos partituras completas sirvieron para afinar el script, así que su 100 % no demuestra que generalice. Las cifras reales están en [los resultados del flujo 2](#2-script-svg2musicxmlpy).
 
@@ -256,20 +260,76 @@ ok       test_xml_clair_de_lune_web
 5. Conseguir una partitura completa de varias páginas en formato web y medirla.
 6. Revisar una página en MuseScore y medir cuánto se tarda.
 7. Probar las apps de práctica existentes con el MiniLab 3 y un MusicXML revisado; decidir si hace falta la propia.
-8. Resolver el fallo intermitente de `svg_scrape.py` con el perfil real.
+8. Quitar las peticiones directas de `svg_scrape.py` (ver sus riesgos) y probar los reintentos.
 
 ## Otros archivos
 
 | Archivo | Para qué |
 |---|---|
 | [pruebas.py](pruebas.py) | Todas las pruebas. Cada una corre por separado y al final dice cuántas pasaron |
-| [svg_scrape.py](svg_scrape.py) | Descarga los SVG de una página. Solo se ha capturado 1 de las 22 páginas de una partitura; falta confirmar que capture la obra completa |
+| [svg_scrape.py](svg_scrape.py) | Descarga los SVG de una página con tu Chrome. Ver la sección «Descarga de SVG» |
+| [partitura.py](partitura.py) | De un enlace de MuseScore al PDF y al MusicXML. Ver «Todo en un paso» |
 | [svg_html.py](svg_html.py) | Extrae los `<svg>` de un HTML y los pasa a PNG |
 
-### Problemas conocidos de `svg_scrape.py`
+## Todo en un paso: `partitura.py`
 
-- **Python de Windows:** no funciona con el de WSL. Se ejecuta con `uvx.exe --python 3.12 --with playwright python svg_scrape.py URL carpeta`, desde una carpeta de Windows.
-- **Fallo intermitente con el perfil real:** al ejecutarlo varias veces seguidas, a veces el navegador se cierra a mitad de la captura o una navegación se interrumpe por `about:blank`. Con un perfil temporal pasó todas las veces, así que se sospecha del perfil persistente, sin confirmarlo. Las pruebas no cubren este caso. Si falla, espera unos segundos y vuelve a lanzarlo.
+```bash
+python partitura.py https://musescore.com/usuario/scores/123 [--nombre NOMBRE] [--compas 9/8]
+```
+
+Captura las hojas con `svg_scrape.py` (abre Chrome), las copia a `svg_partituras/<nombre>/`, y genera `svg_to_pdf/<nombre>.pdf` y `svg_to_xml/<nombre>.musicxml`. `<nombre>` es el título de la obra salvo que lo des con `--nombre`. Si la captura sale con código 2 o 3 (bloqueo u hojas incompletas) no genera nada y deja lo bajado en una carpeta `.captura_*` de `omr_partituras`. Si el PDF falla, igual intenta el MusicXML, y al revés. El MusicXML es el generado sin revisar: el revisado sigue siendo otro archivo.
+
+Probado una vez, con `classicman/scores/55352` (4 hojas, `--compas 4/4`): generó el PDF y el MusicXML. El MusicXML tiene 67 de 69 compases que no suman, así que para esa obra no es utilizable sin una revisión larga. Sin `--compas` supone 4/4. Con otro enlace o con fallos de captura no se ha probado.
+
+## Descarga de SVG: `svg_scrape.py`
+
+### Uso
+
+Desde WSL, con el Python de Windows y desde una carpeta de Windows (`D:`):
+
+```
+uvx.exe --python 3.12 --with playwright python svg_scrape.py URL [carpeta_salida]
+```
+
+Sin `carpeta_salida` guarda en `D:\Nahum\omr_partituras\svg_partituras\<título>\`, una carpeta por obra (con carpeta explícita se usa tal cual). En musescore.com solo guarda las hojas, como `<título>_NN.svg` (título en minúsculas con `_`, número de hoja con dos dígitos). En otras páginas guarda los `<svg>` del DOM (`svg_N`) y los de la red (`red_N`). Si el archivo ya existe, avisa y lo sobrescribe.
+
+### Flujo
+
+1. **Chrome:** si nada escucha en el puerto 9222, abre tu Chrome instalado como proceso normal con `--remote-debugging-port` y el perfil `~/.svg_scrape_chrome` (variable `SVG_SCRAPE_PERFIL` para cambiarlo). Si ya hay uno escuchando, lo reutiliza. Se conecta con `connect_over_cdp`. Al terminar cierra solo el que abrió él.
+2. **Página:** abre una pestaña, navega y, si el título es «Un momento…» (Cloudflare), espera hasta 2 minutos a que el desafío se resuelva. No recarga ni reintenta la navegación.
+3. **Scroll:** baja por todos los contenedores desplazables y lee los `<svg>` del DOM en cada paso. El visor de MuseScore solo carga la hoja 1 así.
+4. **Hojas restantes:** toma la URL de `score_N.svg` capturada y pide las demás con `contexto.request.get`, una cada segundo, hasta el total que dice la ficha («Páginas | N»). Si la ficha no lo dice, hasta el primer 404.
+5. **Guardado:** lo hace al final, con el título de `og:title`, `<h1>` o `<title>`.
+
+### Qué hace cuando algo falla
+
+| Situación | Comportamiento | Salida |
+|---|---|---|
+| Faltan 1 a 3 hojas | Guarda lo que hay y avisa cuáles faltan | 0 |
+| Faltan más de 3 | Reintenta solo las que faltan, 2 veces, con esperas de 30 s y 120 s | 3 si siguen faltando |
+| Error 5xx de una hoja | Reintenta esa hoja 3 veces (5, 15 y 45 s); si no, queda como faltante | |
+| 404 de una hoja | Se toma como el final de la partitura | |
+| 403/429 de una hoja | Para en seco, sin reintentar; guarda lo ya descargado | 2 |
+| Página sigue bloqueada tras 2 minutos | No reintenta | 2 |
+| Sin ningún SVG | Falla con el estado HTTP y el título | 1 |
+
+### Consideraciones y riesgos
+
+- **Huella y bloqueo.** Cloudflare califica la IP, la huella del navegador y las cookies de la sesión; no conoce tu cuenta de MuseScore. Un bloqueo suele liberarse con horas. Tras un rechazo, espera varias horas. Rotar la IP (reiniciar el router) solo sirve si tu proveedor te da una dinámica, no arregla lo ligado al navegador y es esquivar el bloqueo: no está en el script.
+- **Las peticiones del paso 4 son directas.** Comparten las cookies de Chrome, pero salen por el cliente HTTP de Playwright, no por la red de Chrome. Su huella TLS, sus cabeceras (`Sec-Fetch-*`, `Referer`) y el patrón sin interacción pueden delatarlas. Es el punto más débil frente a Cloudflare y no está medido. Mejoras posibles, sin hacer:
+  1. Que el visor cargue todas las hojas con el scroll correcto y capturar solo eso, sin peticiones propias. El scroll actual no lo consigue.
+  2. Pedir las hojas con `fetch()` dentro de la página (`pagina.evaluate`), que usa la red real de Chrome. Falta ver si el sitio lo permite.
+- **Cuenta:** no inicies sesión en MuseScore en el perfil `~/.svg_scrape_chrome`. Las hojas se descargan sin cuenta, y así un problema nunca toca la cuenta. Ese perfil conserva la cookie de Cloudflare: no lo borres sin motivo.
+- **Ritmo:** no lances el script muchas veces seguidas sobre la misma partitura.
+- **Títulos repetidos:** dos obras con el mismo título se sobrescriben (con aviso). El título viene de la página; si cambia su estructura, sale `hoja_NN.svg`.
+- **Total de hojas:** se lee de una fila de la ficha en español («Páginas») o inglés («Pages»). Otro idioma o cambio de diseño lo deja en «desconocido» y se pide hasta el primer 404.
+- **Chrome 136+** ignora la depuración remota sobre el perfil por defecto de uso diario; por eso hay un perfil propio. Esto está tomado de la documentación de Chrome, sin comprobarlo aquí.
+- **Derechos:** ver la sección final.
+
+### Qué se probó
+
+- **Medido:** 2 partituras de musescore.com completas (4 de 4 y 23 de 23 hojas según la ficha) con Chrome por CDP. 24 de 24 pruebas de `pruebas.py` pasan, tres de ellas de `svg_scrape` (SVG por JS, anidados, efímeros, de la red, y el nombrado `<título>_NN`).
+- **No probado:** los reintentos, el rechazo 403/429, la salida 3 y la ficha en inglés; solo revisados leyendo el código. Tampoco se miró el contenido de los SVG descargados, solo su tamaño. Antes de conectar por CDP, con el Chrome lanzado por Playwright, 2 de 3 intentos dieron 403.
 
 ## Derechos
 

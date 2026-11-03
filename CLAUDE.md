@@ -12,9 +12,10 @@ No uses OMR (Audiveris, homr) ni amplíes la entrada a PDF o escaneos: esa fase 
   - `svg_to_pdf/`: los PDF.
   - `svg_to_xml/`: los MusicXML.
   - `resultados/`: pruebas y referencias, no entregables.
-- Python: `.venv/bin/python` (3.14). `svg2pdf.py`, `svg2musicxml.py` y `comparar_musicxml.py` solo usan la biblioteca estándar.
+- Python: `.venv/bin/python` (3.14). `svg2pdf.py`, `svg2musicxml.py`, `comparar_musicxml.py` y `partitura.py` solo usan la biblioteca estándar.
 - Chrome: `/mnt/c/Program Files/Google/Chrome/Application/chrome.exe`. Solo se ha probado con archivos en `D:`.
 - MuseScore: `/mnt/c/Program Files/MuseScore 4/bin/MuseScore4.exe`. Para ver un resultado: `-r 110 -o salida.png entrada.musicxml`. Sin `-r`, las imágenes salen demasiado grandes.
+- Captura: `partitura.py URL` hace captura → PDF → MusicXML (ver README). `svg_scrape.py` corre con el Python de Windows (`uvx.exe`) y conecta a Chrome por depuración remota (puerto 9222, perfil `~/.svg_scrape_chrome`). No inicies sesión en ese perfil ni repitas capturas seguidas; ante 403/429 se para y se espera horas.
 - Pruebas: `.venv/bin/python pruebas.py`. Las saltadas no cuentan como pasadas. Las de `svg_scrape` abren una ventana de Chrome y usan un perfil temporal (`SVG_SCRAPE_PERFIL`).
 
 ## Reglas del flujo 2

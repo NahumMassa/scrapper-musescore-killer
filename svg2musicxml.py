@@ -71,9 +71,7 @@ def glifos(d):
                     out.append(cur)
                 else:
                     cur["huecos"] += 1
-                    h = cur.setdefault("hueco", [len(cur["ys"]), None])  # índices del primer hueco en ys
-                    if h[0] != len(cur["ys"]) and h[1] is None:
-                        h[1] = len(cur["ys"])
+                    cur.setdefault("inicios", [0]).append(len(cur["ys"]))  # dónde empieza cada trazo en ys
                 continue
             if C == "H":
                 x = a[0] + bx
@@ -92,10 +90,12 @@ def glifos(d):
         g.update(x0=min(g["xs"]), x1=max(g["xs"]), y0=min(g["ys"]), y1=max(g["ys"]))
     for g in out:
         g["x"], g["y"] = (g["x0"] + g["x1"]) / 2, (g["y0"] + g["y1"]) / 2
-        if "hueco" in g:  # altura del hueco en la caja, de 0 (arriba) a 1: el del bemol queda abajo
-            ys = g["ys"][g["hueco"][0]:g["hueco"][1]] or [g["y"]]
-            g["hueco_y"] = ((min(ys) + max(ys)) / 2 - g["y0"]) / ((g["y1"] - g["y0"]) or 1)
-            del g["hueco"]
+        if "inicios" in g:  # altura del hueco en la caja, de 0 (arriba) a 1: el del bemol queda abajo
+            i = g.pop("inicios") + [len(g["ys"])]
+            trazos = [g["ys"][a:b] for a, b in zip(i, i[1:]) if b > a]
+            trazos.sort(key=lambda t: max(t) - min(t), reverse=True)  # el exterior es el más alto, vaya antes o después
+            if len(trazos) > 1:
+                g["hueco_y"] = ((min(trazos[1]) + max(trazos[1])) / 2 - g["y0"]) / ((g["y1"] - g["y0"]) or 1)
         del g["xs"], g["ys"]
     return out
 

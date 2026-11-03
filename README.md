@@ -139,8 +139,8 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 - **Figura:** cabeza hueca o llena, plica, barras, corchete y puntillo.
 - **Ritmo:** agrupa por columnas; cada columna empieza cuando termina la nota sonando que acaba antes.
 - **Voces:** las reparte sin que se pisen; un grupo con barra va entero a la misma voz.
-- **Otros:** ligaduras de ambos tipos, grupos irregulares, notas de adorno, 8va, arpegios, repeticiones, casillas y signos `%`.
-- **Con el catálogo de glifos:** cifras de compás, articulaciones, fermatas y dinámicas.
+- **Otros:** ligaduras de ambos tipos, grupos irregulares (también los tresillos sin número), notas de adorno, 8va, arpegios, reguladores, repeticiones, casillas, cambios de armadura y signos `%`.
+- **Con el catálogo de glifos:** cifras de compás, articulaciones, fermatas y dinámicas de la fuente por defecto de MuseScore 4. Con otra fuente, las cifras se calibran con la propia partitura, y el staccato, el tenuto y la fermata se leen por su forma.
 
 **Resultados.** Una nota es correcta si coinciden compás, tiempo, duración, nombre, alteración y octava.
 
@@ -149,6 +149,9 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 | Clair de Lune, página 1 (SVG web) | 345 de 345 | El script se afinó con ella |
 | Él siempre reina | 119 de 119 | También se retocó con ella |
 | Night Dreamer, reducción de piano (escritorio) | 3329 de 3329 | Se afinó con ella: empezó en 55,4 % |
+| Vals en la menor, Chopin (web) | 603 de 603 | Se afinó con ella: empezó en 99,5 % |
+| Preludio en do, BWV 846 (web) | 619 de 619 | Se afinó con ella: empezó en 96,6 % |
+| Arabesque n.º 1, Debussy (web) | 1545 de 1545 | Se afinó con ella: empezó en 43,9 % |
 | Audiveris, Beethoven II | 409 de 421 (97,1 %) | Entrada de OMR |
 | homr, Beethoven p4 | 357 de 394 (90,6 %) | Entrada de OMR |
 | homr, Beethoven p10 | 421 de 475 (88,6 %) | Entrada de OMR |
@@ -167,9 +170,9 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 | Preludio en do, BWV 846 | 598 de 619 (96,6 %) | 132 de 132 |
 | Arabesque n.º 1, Debussy | 678 de 1545 (43,9 %) | 22 de 44 |
 
-Después se afinó el script con ellas, así que esas cifras ya no se pueden repetir como medida limpia.
+Después se afinó el script con ellas (tabla de arriba), así que ya no sirven como medida limpia. En Arabesque faltan 29 de los 93 extremos de regulador porque no están dibujados en el SVG.
 
-**Pendiente: repetir la medición** con partituras de MuseScore bien hechas que el script no haya visto, y con una referencia correcta. Hasta entonces no hay cifra fiable de generalización; las tres primeras filas se usaron para afinar el script.
+**Pendiente: repetir la medición** con partituras de MuseScore bien hechas que el script no haya visto, y con una referencia correcta. Hasta entonces no hay cifra fiable de generalización; todas las filas de partituras de MuseScore se usaron para afinar el script.
 
 **Problemas conocidos** (observados con esas entradas de OMR, sin confirmar con partituras limpias):
 
@@ -181,7 +184,8 @@ Después se afinó el script con ellas, así que esas cifras ya no se pueden rep
 **No hace:**
 
 - Texto: título, tempo, acordes, marcas de ensayo y letra vienen como contornos.
-- Reguladores, cambios de armadura y claves distintas de sol y fa.
+- Claves distintas de sol y fa.
+- Con una fuente distinta de la de MuseScore 4: dinámicas, acentos y ornamentos (trinos, mordentes).
 - Casillas en SVG web: solo se leen en el de escritorio.
 - Saltos (D.C., D.S., coda): las repeticiones y casillas se escriben, pero no se reordena nada.
 

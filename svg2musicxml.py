@@ -673,21 +673,34 @@ ARTICULACIONES = {"accent", "staccato", "staccatissimo", "tenuto", "strong-accen
 
 
 def enganchar_articulaciones(pag, sistema, evs_sistema):
-    """Cada articulación va a la nota más cercana. El nombre sale del catálogo; sin él, solo el tenuto, por ser plano."""
+    """Cada articulación va a la nota más cercana. El nombre sale del catálogo; sin él (otra fuente), por la forma solo
+    las inequívocas: el tenuto es una raya y el staccato un punto. shortcut: el acento sin catálogo se confunde con el
+    mordente (los dos ~2:1); distinguirlos por el contorno si hace falta."""
     sp = pag.sp
     notas = [e for e in evs_sistema if e["tipo"] == "nota"]
     otras = 0
     for a in (g for g in reconocer(pag.ruta, "Articulation") if pag.sistema_de(g["y"]) is sistema):
-        nombre = a["nombre"] or ("tenuto" if (a["y1"] - a["y0"]) / sp < .3 else None)
+        ancho, alto = (a["x1"] - a["x0"]) / sp, (a["y1"] - a["y0"]) / sp
+        nombre = a["nombre"] or ("tenuto" if alto < .3 and ancho > .8 else "staccato" if ancho < .6 and alto < .6 else None)
         if nombre not in ARTICULACIONES or not notas:
             otras += 1
             continue
         e = min(notas, key=lambda e: abs(e["x"] - a["x"]) * 3 + min(abs(h["y"] - a["y"]) for h in e["cabezas"]))
         e.setdefault("artic", []).append(nombre)
-    # la fermata, sobre la nota o el silencio de debajo (o encima, si va invertida)
-    for f in (g for g in reconocer(pag.ruta, "Fermata") if pag.sistema_de(g["y"]) is sistema and evs_sistema):
-        alto = lambda e: min([abs(h["y"] - f["y"]) for h in e["cabezas"]] or [abs(e["y"] - f["y"])])
-        min(evs_sistema, key=lambda e: abs(e["x"] - f["x"]) * 3 + alto(e))["fermata"] = f["nombre"] or "upright"
+    # la fermata, sobre la nota o el silencio de debajo (o encima, si va invertida: el punto queda sobre el arco)
+    piezas = [g for g in reconocer(pag.ruta, "Fermata") if pag.sistema_de(g["y"]) is sistema]
+    fermatas = []  # sin catálogo, el arco y su punto llegan sueltos: se juntan por posición
+    for g in piezas:
+        f = next((f for f in fermatas if abs(f[0]["x"] - g["x"]) < .5 * sp and abs(f[0]["y"] - g["y"]) < 1.5 * sp), None)
+        (f.append(g) if f else fermatas.append([g]))
+    for f in fermatas:
+        if not evs_sistema:
+            break
+        arco = max(f, key=lambda g: g["x1"] - g["x0"])
+        punto = min(f, key=lambda g: g["x1"] - g["x0"])
+        nombre = arco["nombre"] or ("inverted" if punto is not arco and punto["y"] < arco["y"] else "upright")
+        alto = lambda e: min([abs(h["y"] - arco["y"]) for h in e["cabezas"]] or [abs(e["y"] - arco["y"])])
+        min(evs_sistema, key=lambda e: abs(e["x"] - arco["x"]) * 3 + alto(e))["fermata"] = nombre
     return otras
 
 
@@ -774,6 +787,39 @@ def casillas(paginas, compases):
         t["num"] = tramos[i - 1]["num"] + 1 if pegada else 1
         t["cs"][0]["casilla_ini"] = t["num"]
         t["cs"][-1]["casilla_fin"] = (t["num"], "stop" if t["cerrada"] else "discontinue")
+
+
+def enganchar_reguladores(pag, sistema, evs_sistema):
+    """Cada regulador son dos líneas: juntas a la izquierda, crescendo; a la derecha, diminuendo. Va al pentagrama de
+    encima, como las dinámicas. Un tramo que sigue en otro sistema no cierra al final ni abre al principio."""
+    sp = pag.sp
+    lineas = [g for g in pag.it.get("HairpinSegment", []) if pag.sistema_de(g["y"]) is sistema]
+    pares, usadas = [], set()
+    for i, a in enumerate(lineas):
+        if i in usadas:
+            continue
+        j = next((j for j, b in enumerate(lineas) if j > i and j not in usadas and abs(a["x0"] - b["x0"]) < .2 * sp
+                  and abs(a["x1"] - b["x1"]) < .2 * sp and abs(a["y"] - b["y"]) < 3 * sp), None)
+        if j is not None:
+            usadas.update((i, j))
+            pares.append((a, lineas[j]))
+    # shortcut: el regulador de escritorio en una sola polilínea (punta en medio) no se lee; añadirlo si aparece
+    notas = sorted((e for e in evs_sistema if e["tipo"] == "nota"), key=lambda e: e["x"])
+    if not notas:
+        return
+    fin_sistema = pag.barras(sistema)[-1]
+    for a, b in pares:
+        izq, der = abs(a["start"][1] - b["start"][1]), abs(a["fin"][1] - b["fin"][1])
+        tipo, x0, x1, y = "crescendo" if izq < der else "diminuendo", a["x0"], a["x1"], (a["y"] + b["y"]) / 2
+        encima = [i for i in range(len(sistema)) if sistema[i]["top"] < y]
+        penta = max(encima) if encima else 0
+        en = [e for e in notas if e["penta"] == penta] or notas
+        if x0 > notas[0]["x"] - sp:  # si empieza antes de la primera nota del sistema, viene del anterior
+            ini = next((e for e in en if e["x"] >= x0 - .5 * sp), en[-1])
+            ini.setdefault("reg_ini", []).append((tipo, penta, "below" if encima else "above"))
+        if x1 < fin_sistema - sp:
+            fin = next((e for e in reversed(en) if e["x"] <= x1 + .5 * sp), en[0])
+            fin.setdefault("reg_fin", []).append(penta)
 
 
 def octavas(pag):
@@ -1084,6 +1130,7 @@ def convertir(rutas, compas, defecto=None):
             enganchar_ligaduras(pag, sistema, evs)
             otras += enganchar_articulaciones(pag, sistema, evs)
             enganchar_dinamicas(pag, sistema, evs)
+            enganchar_reguladores(pag, sistema, evs)
             enganchar_arpegios(pag, sistema, evs)
         enganchar_expresion(pag, [c for c in compases if c["pag"] is pag], pendientes)
     if otras:
@@ -1208,6 +1255,8 @@ def xml(compases, n):
                     out.append(f'<direction placement="{lugar}"><direction-type><dynamics><{nombre}/></dynamics></direction-type><staff>{p + 1}</staff></direction>')
                 octava = lambda tipo, o: (f'<direction placement="{"above" if o > 0 else "below"}"><direction-type><octave-shift type="{tipo}" '
                                           f'size="{8 if abs(o) == 1 else 15}"/></direction-type><staff>{e["penta"] + 1}</staff></direction>')
+                for tipo, p, lugar in e.pop("reg_ini", []):
+                    out.append(f'<direction placement="{lugar}"><direction-type><wedge type="{tipo}"/></direction-type><staff>{p + 1}</staff></direction>')
                 if e.get("oct_ini"):  # 8va: la nota se escribe una octava más baja de como suena
                     out.append(octava("down" if e["oct_ini"] > 0 else "up", e["oct_ini"]))
                 if e["tipo"] == "silencio":
@@ -1217,6 +1266,8 @@ def xml(compases, n):
                         out.append(nota_xml(e, h, i > 0, e.get("slurs", []), e.get("bm"), u))
                 if e.get("oct_fin"):
                     out.append(octava("stop", e["oct_fin"]))
+                for p in e.pop("reg_fin", []):
+                    out.append(f'<direction><direction-type><wedge type="stop"/></direction-type><staff>{p + 1}</staff></direction>')
                 cursor = e["t"] + duracion(e)
         if c.get("rep_fin") or "casilla_fin" in c:
             out.append('<barline location="right">' + ("<bar-style>light-heavy</bar-style>" if c.get("rep_fin") else "")

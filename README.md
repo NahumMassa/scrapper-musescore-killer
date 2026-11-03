@@ -145,17 +145,19 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 |---|---|---|
 | Clair de Lune, página 1 (SVG web) | 345 de 345 | El script se afinó con ella |
 | Él siempre reina | 119 de 119 | También se retocó con ella |
-| Audiveris, Beethoven II | 409 de 421 (97,1 %) | No vista |
-| homr, Beethoven p4 | 357 de 394 (90,6 %) | No vista |
-| homr, Beethoven p10 | 421 de 475 (88,6 %) | No vista |
-| Audiveris, Piano exam | 19 de 22 (86,4 %) | No vista |
-| homr, Piano exam | 19 de 23 (82,6 %) | No vista |
-| homr, Night Dreamer p6 | 245 de 416 (58,9 %) | No vista |
-| homr, Night Dreamer p2 | 16 de 453 (3,5 %) | No vista |
+| Audiveris, Beethoven II | 409 de 421 (97,1 %) | Entrada de OMR |
+| homr, Beethoven p4 | 357 de 394 (90,6 %) | Entrada de OMR |
+| homr, Beethoven p10 | 421 de 475 (88,6 %) | Entrada de OMR |
+| Audiveris, Piano exam | 19 de 22 (86,4 %) | Entrada de OMR |
+| homr, Piano exam | 19 de 23 (82,6 %) | Entrada de OMR |
+| homr, Night Dreamer p6 | 245 de 416 (58,9 %) | Entrada de OMR |
+| homr, Night Dreamer p2 | 16 de 453 (3,5 %) | Entrada de OMR |
 
-Las 7 últimas son salidas de OMR exportadas a SVG por MuseScore. La referencia es lo que dice cada archivo, no la partitura impresa. Tienen compases que ya no cuadran, lo que quizá las hace más difíciles que una partitura limpia, aunque no se ha medido. Se contaron tras corregir un fallo del parser, sin más ajustes.
+**Estas 7 filas no miden el script.** Son SVG que salieron de motores OMR (Audiveris y homr) y que MuseScore exportó con sus errores y compases que no cuadran. Se conservan solo para comparar entre sí, no como la precisión del script con partituras reales. Con esos archivos el rango fue de 3,5 % a 97,1 %, que no sirve como medida.
 
-**Problemas conocidos:**
+**Pendiente: repetir la medición** con partituras de MuseScore bien hechas que el script no haya visto, y con una referencia correcta. Hasta entonces no hay cifra fiable de generalización; las dos primeras filas se usaron para afinar el script.
+
+**Problemas conocidos** (observados con esas entradas de OMR, sin confirmar con partituras limpias):
 
 - Un error de compás se arrastra: en Night Dreamer p2 las notas revisadas salen un compás antes y casi todo cuenta como error. Causa sin confirmar.
 - Lee mal muchos silencios: en los dos Piano exam acierta 1 y 2 de 9. Causa sin investigar.
@@ -282,7 +284,7 @@ ok       test_xml_clair_de_lune_web
 1. Imprimir una partitura en papel.
 2. Construir la comparación contra el SVG original y comprobar que detecta errores introducidos a propósito.
 3. Definir las convenciones con partituras reales, empezando por título, compás, tempo y dinámicas.
-4. Investigar los silencios y el error de compás arrastrado.
+4. Repetir la medición del script con partituras de MuseScore sin OMR y no vistas; investigar los silencios y el error de compás arrastrado.
 5. Conseguir una partitura completa de varias páginas en formato web y medirla.
 6. Revisar una página en MuseScore y medir cuánto se tarda.
 7. Practicar con el MiniLab 3 y un MusicXML revisado, y comparar con [midipiano.app](https://alternativeto.net/software/midipiano-app/about/) y [PianoML](https://hunted.space/dashboard/pianoml), que no se llegaron a probar.

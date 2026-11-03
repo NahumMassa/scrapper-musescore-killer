@@ -1,0 +1,37 @@
+<svg width="320" height="200" xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" style="background-color:#fff">
+<!--
+  Ejemplo mínimo a mano con el formato "web" de MuseScore: cada <path> trae class="..." y sus coordenadas.
+  Un pentagrama: líneas en y=100,105,110,115,120 (espacio entre líneas sp=5). La línea inferior es mi4 en clave de sol.
+  Altura de una nota: pos = (120 - y) / 2.5 pasos sobre mi4. Compás 1 = 4 negras, compás 2 = blanca + silencio de blanca.
+  El texto (título, tempo, dinámicas) no existe aquí: en un SVG real vendría como contornos sin significado.
+-->
+
+<!-- StaffLines: una línea por "M x y H x2"; el script las agrupa de 5 en 5 -->
+<path class="StaffLines" fill="none" stroke="#000" stroke-width=".4" d="M40 100H300M40 105H300M40 110H300M40 115H300M40 120H300"/>
+
+<!-- BarLine: barra inicial, entre compases y final (alto 20 = 4 sp) -->
+<path class="BarLine" fill="none" stroke="#000" stroke-width=".5" d="M40 100V120M170 100V120M300 100V120"/>
+
+<!-- Clef: clave de sol; el script solo mide su alto (>4,5 sp = sol, si no fa) -->
+<path class="Clef" fill="#000" d="M50 95C60 100 60 120 50 125C45 120 45 100 50 95Z"/>
+
+<!-- Note: una elipse por cabeza. mi4 (y=120), sol4 (115), la4 (112.5), sol4 (115): negras con plica arriba -->
+<path class="Note" fill="#000" d="M86.75 120C86.75 117.5 93.25 117.5 93.25 120C93.25 122.5 86.75 122.5 86.75 120Z"/>
+<path class="Note" fill="#000" d="M106.75 115C106.75 112.5 113.25 112.5 113.25 115C113.25 117.5 106.75 117.5 106.75 115Z"/>
+<path class="Note" fill="#000" d="M126.75 112.5C126.75 110 133.25 110 133.25 112.5C133.25 115 126.75 115 126.75 112.5Z"/>
+<path class="Note" fill="#000" d="M146.75 115C146.75 112.5 153.25 112.5 153.25 115C153.25 117.5 146.75 117.5 146.75 115Z"/>
+
+<!-- Stem: rectángulo fino pegado al borde derecho de la cabeza; sube 17,5 -->
+<path class="Stem" fill="#000" d="M92.85 102.5H93.25V120H92.85Z"/>
+<path class="Stem" fill="#000" d="M112.85 97.5H113.25V115H112.85Z"/>
+<path class="Stem" fill="#000" d="M132.85 95H133.25V112.5H132.85Z"/>
+<path class="Stem" fill="#000" d="M152.85 97.5H153.25V115H152.85Z"/>
+
+<!-- Compás 2: do5 (y=107.5) blanca. La cabeza lleva un 2.º contorno con "m" (hueco): así el script sabe que es blanca -->
+<path class="Note" fill="#000" d="M196.75 107.5C196.75 105 203.25 105 203.25 107.5C203.25 110 196.75 110 196.75 107.5Zm1.5 0c0-1.5 3.5-1.5 3.5 0c0 1.5-3.5 1.5-3.5 0z"/>
+<!-- plica hacia abajo, a la izquierda de la cabeza -->
+<path class="Stem" fill="#000" d="M196.95 107.5H197.35V125H196.95Z"/>
+
+<!-- Rest: bloque de 0,5 sp de alto apoyado sobre la 3.ª línea (y=110) = silencio de blanca -->
+<path class="Rest" fill="#000" d="M247 107.5H253V110H247Z"/>
+</svg>

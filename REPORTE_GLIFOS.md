@@ -77,6 +77,20 @@ Que Merry y Moonlight vengan de otra versión de Emmentaler (¿MuseScore 3?) es 
 
 Medido en la página 1 de dos partituras exportadas con el mismo MuseScore: Clair de Lune (notas 403/403, claves 58/58, armaduras 100/100, compás 10/10, silencios 18/18) y `ref.musicxml` (notas 88/92 y el resto al 100 %). Solo muestra que el catálogo es coherente consigo mismo; son referencias ya usadas y no miden generalización. Las 4 notas sin reconocer no se investigaron. Esas cifras son anteriores a los cambios de comparación de este reporte.
 
+## Cambios tras la revisión del primer reporte
+
+La primera versión de este reporte decía que el catálogo de Merry reconocía el 92 % de Moonlight. Esa cifra contaba notas, puntillos, armaduras y claves, que el script ya lee, y contornos sueltos (un sostenido contaba dos veces). Se corrigió en el commit `97c47fe`:
+
+- **`--probar` pasó a `--medir`:** acepta varias páginas, no escribe nada y da una tabla por clase. Antes `-o` servía de salida al generar y de entrada al probar, y olvidar `--probar` habría sobrescrito `glifos_merry.json`, que está hecho a mano.
+- **`generar` no escribe el JSON si hay fallos,** para no reemplazar un catálogo bueno por uno parcial.
+- **La tolerancia de `dentro` es relativa al espacio entre líneas,** como pide `CLAUDE.md`. El catálogo regenerado salió idéntico.
+- **`iguales` compara en los dos sentidos:** antes `[x, x]` e `[x, y]` podían darse por iguales.
+- **Pruebas:** se añadió la comparación en los dos sentidos y la de nombres sin repetir ahora cubre también `glifos_merry.json`.
+
+Commits: `53a61b9` (catálogos y primer reporte) y `97c47fe` (estos cambios).
+
+Estado de las pruebas: las 3 del catálogo pasan. Al correr `pruebas.py` completo en la copia de trabajo fallaron 12 de `practica.html`, porque Chrome devolvió «Acceso denegado» en esa sesión; no tienen relación con el catálogo y sus cambios no están en estos commits.
+
 ## Qué se midió y qué solo se miró
 
 - **Medido:** las tablas de Merry, Moonlight y Midnight con `--medir`; que el catálogo regenerado es idéntico al anterior tras los cambios; que ningún catálogo tiene dos nombres con la misma forma.

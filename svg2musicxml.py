@@ -537,6 +537,9 @@ def columnas(eventos, sp):
                                    for p in {h["penta"] for h in e["cabezas"]})
             solo_notas = e["tipo"] == "nota" and all(o["tipo"] == "nota" for o in ult)
             lim = .7 * sp if solo_notas and not any(choque(o) for o in ult) else 1.5 * sp
+            opuestas = lambda o: o["up"] is not None and e["up"] is not None and o["up"] != e["up"]
+            if any(choque(o) and opuestas(o) and o["puntillo"] for o in ult):
+                lim = 2.5 * sp  # dos voces que chocan: la otra se aparta también del puntillo
             if i + 1 < len(orden) and orden[i + 1]["x"] - e["x"] < .7 * sp < e["x"] - ult[0]["x"]:
                 lim = .7 * sp  # el siguiente está casi alineado con este: el choque es con él, no con la columna anterior
             misma_barra = e["barra"] is not None and any(o["barra"] == e["barra"] for o in ult)

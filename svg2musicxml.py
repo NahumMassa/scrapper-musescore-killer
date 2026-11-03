@@ -13,6 +13,7 @@ import sys
 from collections import Counter
 from fractions import Fraction as F
 from functools import lru_cache
+from itertools import combinations
 from math import lcm
 from pathlib import Path
 
@@ -183,7 +184,7 @@ class Pagina:
         distintos, gana aquel del que salen sus líneas adicionales: hay una en cada espacio hasta la cabeza."""
         sp, y, ps = self.sp, n["y"], self.pentas
         cerca = min(range(len(ps)), key=lambda i: abs((ps[i]["top"] + ps[i]["bot"]) / 2 - y))
-        if ps[cerca]["top"] - sp <= y <= ps[cerca]["bot"] + sp:
+        if ps[cerca]["top"] - .75 * sp <= y <= ps[cerca]["bot"] + .75 * sp:
             return ps[cerca]
         otro = cerca + 1 if y > ps[cerca]["bot"] else cerca - 1
         if not 0 <= otro < len(ps):
@@ -289,6 +290,11 @@ def construir_eventos(pag, sistema, npag):
         if not s["cabezas"]:
             continue
         hs = s["cabezas"]
+        # acorde partido entre pentagramas: las cabezas fuera de las líneas siguen a las que están dentro de uno
+        dentro = {h["penta"] for h in hs if sistema[h["penta"]]["top"] - .25 * sp <= h["y"] <= sistema[h["penta"]]["bot"] + .25 * sp}
+        if len({h["penta"] for h in hs}) > 1 and len(dentro) == 1:
+            for h in hs:
+                h["penta"] = next(iter(dentro))
         # plica arriba si las cabezas están en su punta de abajo; con una segunda hay cabezas a los dos lados de la plica
         up = sum(h["y"] for h in hs) / len(hs) > (s["y0"] + s["y1"]) / 2
         toca = lambda b, y: b["x0"] - .2 * sp <= s["x"] <= b["x1"] + .2 * sp and b["y0"] - .25 * sp <= y <= b["y1"] + .25 * sp
@@ -446,20 +452,32 @@ def tresillos_implicitos(c, largo, total, fallos):
     for e in c["ev"]:
         if e["barra"] is not None and not e.get("adorno"):
             grupos.setdefault(e["barra"], []).append(e)
-    tres = [sorted(g, key=lambda e: e["x"]) for g in grupos.values()
-            if len(g) == 3 and len({e["base"] for e in g}) == 1 and not any("tresillo" in e for e in g)]
-    if not tres:
-        return total, fallos
-    for g in tres:
-        marcar_grupo(g, 3, 2)
-    nuevo, nuevos_fallos = barrer(c["ev"], c["pag"].sp, largo)
-    if nuevo == largo and not nuevos_fallos:
-        return nuevo, nuevos_fallos
-    for g in tres:
-        for e in g:
-            e["factor"] = F(1)
-            for k in ("tresillo", "t_ini", "t_fin"):
-                e.pop(k, None)
+    tres = []
+    for g in grupos.values():
+        g = sorted(g, key=lambda e: e["x"])
+        if len({e["base"] for e in g}) != 1 or any("tresillo" in e for e in g):
+            continue
+        if len(g) == 2:  # silencio + dos notas: el silencio de la misma figura justo delante completa el grupo
+            sp = c["pag"].sp
+            sil = [e for e in c["ev"] if e["tipo"] == "silencio" and e["base"] == g[0]["base"] and "tresillo" not in e
+                   and 0 < g[0]["x"] - e["x"] < 2.5 * sp]
+            g = [max(sil, key=lambda e: e["x"])] + g if sil else g
+        if len(g) == 3:
+            tres.append(g)
+    # el mayor subconjunto que cuadre: una mano puede ir en tresillos y la otra en corcheas normales
+    # shortcut: con más de 10 grupos solo se prueba marcarlos todos; ampliarlo si aparece un compás así
+    for r in range(len(tres), 0, -1) if len(tres) <= 10 else [len(tres)]:
+        for elegidos in combinations(tres, r):
+            for g in elegidos:
+                marcar_grupo(g, 3, 2)
+            nuevo, nuevos_fallos = barrer(c["ev"], c["pag"].sp, largo)
+            if nuevo == largo and not nuevos_fallos:
+                return nuevo, nuevos_fallos
+            for g in elegidos:
+                for e in g:
+                    e["factor"] = F(1)
+                    for k in ("tresillo", "t_ini", "t_fin"):
+                        e.pop(k, None)
     return barrer(c["ev"], c["pag"].sp, largo)
 
 
@@ -471,17 +489,23 @@ def duracion(e):
 
 def columnas(eventos, sp):
     cols = []
-    for e in sorted(eventos, key=lambda e: e["x"]):
+    orden = sorted(eventos, key=lambda e: e["x"])
+    for i, e in enumerate(orden):
         # dos notas de un mismo grupo con barra nunca suenan a la vez, aunque una escala apretada las acerque
         # dos notas simultáneas se alinean; solo se apartan ~1,3 sp si sus cabezas chocarían en el mismo pentagrama
         # (segunda, unísono o un acorde metido entre las notas del otro). Así una corchea con puntillo contra
         # seisillos, o un tresillo apretado, no se juntan.
         if cols:
             ult = cols[-1]
-            rango = lambda ev: (min(h["y"] for h in ev["cabezas"]) - .6 * sp, max(h["y"] for h in ev["cabezas"]) + .6 * sp)
-            choque = lambda o: o["penta"] == e["penta"] and o["cabezas"] and rango(o)[0] < rango(e)[1] and rango(e)[0] < rango(o)[1]
+            def rango(ev, p):  # por pentagrama: un acorde puede repartirse entre los dos
+                ys = [h["y"] for h in ev["cabezas"] if h["penta"] == p]
+                return (min(ys) - .6 * sp, max(ys) + .6 * sp) if ys else None
+            choque = lambda o: any((a := rango(o, p)) and (b := rango(e, p)) and a[0] < b[1] and b[0] < a[1]
+                                   for p in {h["penta"] for h in e["cabezas"]})
             solo_notas = e["tipo"] == "nota" and all(o["tipo"] == "nota" for o in ult)
             lim = .7 * sp if solo_notas and not any(choque(o) for o in ult) else 1.5 * sp
+            if i + 1 < len(orden) and orden[i + 1]["x"] - e["x"] < .7 * sp < e["x"] - ult[0]["x"]:
+                lim = .7 * sp  # el siguiente está casi alineado con este: el choque es con él, no con la columna anterior
             misma_barra = e["barra"] is not None and any(o["barra"] == e["barra"] for o in ult)
         if cols and e["x"] - ult[0]["x"] < lim and not misma_barra:
             cols[-1].append(e)

@@ -1,6 +1,6 @@
 # omr-musescore-killer
 
-Convierte partituras en SVG exportadas de MuseScore en un PDF para imprimir y un MusicXML para manipular. Como siguiente paso se propone una app para practicar fragmentos con un teclado MIDI.
+Convierte partituras en SVG exportadas de MuseScore en un PDF para imprimir y un MusicXML para manipular. Incluye una página para practicar nota por nota con un teclado MIDI.
 
 ## Alcance
 
@@ -9,12 +9,13 @@ Convierte partituras en SVG exportadas de MuseScore en un PDF para imprimir y un
 | **Entrada** | SVG de MuseScore: el de la web o el del programa de escritorio. Cada símbolo debe traer su clase (`class="Note"`, `class="Stem"`…). |
 | **Flujo 1** | SVG → PDF para imprimir. |
 | **Flujo 2** | SVG → MusicXML para abrir y editar en MuseScore. |
-| **Propuesta: práctica** | Tocar fragmentos del MusicXML revisado con un MiniLab 3 y saber si se tocaron bien. Sin construir. |
+| **Práctica** | Tocar un MusicXML nota por nota con un MiniLab 3 en [practica.html](practica.html), sin medir ritmo. |
+| **Página** | Home, Convertir (los tres scripts) y Práctica, servidas por [web.py](#página-webpy). |
 | **Fuera de alcance** | PDF, escaneos, fotos y SVG de otros programas. Bajar los SVG de MuseScore no es parte de los flujos; lo hace [svg_scrape.py](#descarga-de-svg-svg_scrapepy), y [partitura.py](#todo-en-un-paso-partiturapy) encadena todo desde un enlace. |
 
 El nombre del repo viene de una fase anterior basada en reconocimiento óptico de música (OMR). Se descartó porque el SVG ya trae cada símbolo con sus coordenadas: en una partitura difícil, Audiveris y homr acertaban cerca del 95 % de las notas, y además hay que corregir a mano lo que confunden.
 
-## Estado (1 de noviembre de 2026)
+## Estado (2 de noviembre de 2026)
 
 | Pieza | Estado |
 |---|---|
@@ -23,10 +24,11 @@ El nombre del repo viene de una fase anterior basada en reconocimiento óptico d
 | Flujo 2: comparación | [comparar_musicxml.py](comparar_musicxml.py) existe, pero necesita un MusicXML de referencia, que normalmente no habrá |
 | Flujo 2: convenciones | Sin construir |
 | Flujo 2: revisión humana | Se hace en MuseScore; falta la lista de diferencias que la guíe |
-| App de práctica | Sin construir; primero hay que probar las que ya existen |
+| App de práctica | Primera versión; aún sin probar pulsando teclas reales |
 | Descarga de SVG | [svg_scrape.py](svg_scrape.py) baja partituras completas de musescore.com (4 y 23 hojas probadas); reintentos y rechazos sin probar |
 | Todo en un paso | [partitura.py](partitura.py): enlace → PDF + MusicXML; probado con un enlace |
-| Pruebas | [pruebas.py](pruebas.py): 24 de 24 pasan |
+| Página | [web.py](web.py): Home, Convertir y Práctica; pipeline probada solo contra una página local |
+| Pruebas | [pruebas.py](pruebas.py): 47 de 47 pasan |
 
 ## Partituras generadas
 
@@ -195,34 +197,56 @@ Vale la pena medir cuánto tarda una página: es lo que dirá si conviene seguir
 
 **Sin MCP por ahora.** Reparar es trabajo visual en la ventana de MuseScore, y un agente ya puede editar el MusicXML como archivo. Los MCP existentes no se han probado; quedan como opción si aparecen ediciones repetitivas.
 
-## Propuesta: app de práctica (sin construir)
+## Práctica: `practica.html`
 
-Elegir un fragmento (por ejemplo, compases 5 a 8, una mano), tocarlo en el MiniLab 3 y saber si se tocó bien. Usa siempre el MusicXML **revisado**: si la partitura tiene una nota mal, la app corregiría al revés.
+Página local en Chrome: sueltas un MusicXML (o `.mxl`), tocas en el MiniLab 3 y cada nota pasa de gris (por tocar) a verde (tocada) y la franja gris avanza solo cuando aciertas todas las del paso. Los pasos sin nada que tocar (silencios, notas ligadas, la otra mano) se pasan de largo. No mide ritmo ni produce sonido.
 
-**Antes de construirla:** probar [midipiano.app](https://alternativeto.net/software/midipiano-app/about/) y [PianoML](https://hunted.space/dashboard/pianoml), que dicen leer MusicXML y dar respuesta con teclado MIDI. Solo se han visto sus fichas, no se han usado. Lo que no cubran es lo que justificaría la app propia.
+```bash
+.venv/bin/python web.py
+```
 
-**Si hay que construirla:** una página local en Chrome.
+Abre `http://localhost:8766/practica.html` en Chrome (el de Windows, que es donde está el USB) y acepta el permiso de MIDI. Web MIDI solo se probó por `localhost`, no abriendo el archivo directamente.
 
-| Pieza | Herramienta | Motivo |
-|---|---|---|
-| Teclado | Web MIDI | Chrome corre en Windows, donde está conectado el USB; WSL no lo ve sin configuración extra |
-| Partitura | [OpenSheetMusicDisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay/wiki/Exploring-the-Demo) | Dibuja MusicXML y tiene un cursor que expone las notas de cada tiempo |
-| Evaluación | Código propio | No se encontró ningún ejemplo que lo resuelva |
+**Sonido:** abre tu VST en Ableton o Analog Lab con la entrada `Minilab3 MIDI`, como siempre; la página no reenvía nada. El servicio MIDI de Windows (`midisrv`) deja compartir el puerto: dos procesos de Chrome lo tuvieron abierto a la vez. No se ha probado junto a Ableton; si no se puede, la página avisa de que no pudo abrir el puerto.
 
-**Primera versión:**
+| Control | Qué hace |
+|---|---|
+| Mano | Derecha es el primer pentagrama e izquierda el segundo; se dibuja solo el de esa mano |
+| Ver | Sistema actual (por defecto) o toda la partitura, que no se desplaza sola. Cambiar de vista no pierde el paso |
+| Compases | Limita el fragmento; al terminar da el total y espera a que pulses Reiniciar |
+| Ignorar octava | Activado por defecto: el MiniLab tiene 25 teclas y las partituras no caben, así que solo compara el nombre de la nota. Desactívalo para exigir la altura exacta con los botones de octava |
+| Saltar | Pasa al siguiente paso sin tocarlo, por si una nota no se puede tocar o está mal en la partitura |
 
-1. Modo espera: el cursor avanza cuando se tocan todas las notas del tiempo actual. Sin medir ritmo.
-2. Elegir compases y mano, y repetir el fragmento.
-3. Marcar cada nota como correcta o incorrecta y dar el total al terminar.
+**Qué exige:** las notas que empiezan en cada paso. Las notas ligadas, los adornos y los silencios no se piden. Las notas de un acorde pueden llegar en cualquier orden y sin límite de tiempo. Los pads no cuentan.
 
-**Casos que definen si funciona:**
+**Medido:** en las 4 partituras de `svg_to_xml/` se comparó paso a paso, con ambas manos y con cada una, lo que exige la página con una lectura independiente del XML: 3 coinciden del todo; en Clair de Lune sobra un acorde de 2 notas (de 278) en el compás 1, porque OSMD no empareja una ligadura entre dos voces y lo pide otra vez. Esas 4 partituras son MusicXML generados, no revisados.
 
-- **Rango:** el MiniLab 3 tiene 25 teclas y solo la primera página de Clair de Lune va de Mi♭1 a Sol♭6, más de cinco octavas. Hace falta transportar el fragmento a una octava que quepa, y comprobar que el fragmento entero cabe.
-- **Ligaduras de prolongación:** una nota ligada no se vuelve a tocar, así que no debe exigirse.
-- **Acordes:** las notas de un acorde nunca llegan a la vez; hace falta una ventana de tiempo.
-- **Voces:** cada nota debe saberse de qué pentagrama es para poder separar las manos, también en los grupos que cruzan de pentagrama.
+**Límites:** usa el MusicXML revisado, porque la página exige lo que ponga el archivo. Solo evalúa los dos primeros pentagramas, así que está pensada para piano. Partituras dibujadas con [OpenSheetMusicDisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay) 2.2.1, copiado en [vendor/](vendor/) para funcionar sin internet.
 
 **Después:** medir ritmo contra un metrónomo. Es la parte difícil, porque hay que decidir cuánta desviación se tolera.
+
+## Página: `web.py`
+
+```bash
+.venv/bin/python web.py
+```
+
+Abre `http://localhost:8766` en el Chrome de Windows. La pestaña **Convertir** ejecuta `svg2pdf.py`, `svg2musicxml.py` o `partitura.py` y muestra su salida mientras corren. Los SVG elegidos se copian a una carpeta temporal `.web_*` de `omr_partituras`, porque Chrome es de Windows, y se borra al terminar. Sin `web.py`, Convertir no funciona.
+
+| Pestaña | Qué hace |
+|---|---|
+| Home | Presenta el proyecto, sus pasos y el aviso de cuánto acierta el MusicXML |
+| Convertir | `SVG → PDF` y `SVG → MusicXML` piden las hojas y un nombre; `Enlace → Todo` pide el enlace. El compás es opcional en los dos últimos, y sin él se supone 4/4 |
+| Práctica | La página de [práctica](#práctica-practicahtml), en su propio archivo: al cambiar de pestaña se pierde la partitura cargada |
+
+- **Un trabajo a la vez:** otro responde 409. No hay botón para cancelarlo, y cerrar la pestaña no lo detiene.
+- **Sobrescribe** el PDF y el MusicXML generados con ese nombre, igual que los scripts. Rechaza nombres que acaben en `_revisado`.
+- **Solo local:** escucha en `127.0.0.1`, rechaza otros `Host` y `Origin`, y solo sirve las páginas y `vendor/`. Sin esto, cualquier web abierta podría lanzar capturas.
+- **Salida:** los archivos quedan en `svg_to_pdf/` y `svg_to_xml/`; la página no los descarga.
+
+**Medido:** PDF y MusicXML reales de Clair de Lune por el servidor, y el formulario en Chrome con scripts falsos ([pruebas.py](pruebas.py)). Una vez, a mano, la pipeline completa contra una página local con ese SVG: PDF y MusicXML de 345 notas. **Solo mirado:** capturas de las tres pestañas, Práctica sin partitura. **Sin probar:** un enlace real de MuseScore.
+
+Letra: [Michroma](https://fonts.google.com/specimen/Michroma) y [VT323](https://fonts.google.com/specimen/VT323), licencia OFL, copiadas en [vendor/](vendor/). `PARTITURA` es un nombre provisional; colores y letra se inspiran en el Yamaha DX7, sin usar su marca.
 
 ## Pruebas
 
@@ -235,7 +259,7 @@ Todas están en [pruebas.py](pruebas.py). Cada una corre por separado y al final
 ok       test_pdf_rechaza_0_bytes
 ok       test_xml_clair_de_lune_web
 ...
-24 de 24 pruebas pasaron (0 fallaron, 0 saltadas)
+47 de 47 pruebas pasaron (0 fallaron, 0 saltadas)
 ```
 
 | Script | Pruebas | Qué cubren |
@@ -244,6 +268,8 @@ ok       test_xml_clair_de_lune_web
 | `svg2musicxml.py` | 11 | Lectura de contornos, matrices y armaduras; SVG vacío o ajeno; Clair de Lune y Él siempre reina nota por nota |
 | `svg_scrape.py` | 4 | SVG creados por JS, anidados, repetidos, efímeros, en contenedores con desplazamiento, recibidos por la red y nombrado `<título>_NN` |
 | `partitura.py` | 0 | Sin pruebas propias |
+| `web.py` e `index.html` | 8 | Rutas servidas, orígenes, validación, comando y orden de hojas, un trabajo a la vez, PDF y MusicXML reales, y el formulario en Chrome con scripts falsos |
+| `practica.html` | 12 | Con un teclado falso en Chrome: elección de puerto, pasos exigidos, manos, vistas, colores, compases, octava, aciertos y fallos, `.mxl` y archivos que no son MusicXML |
 
 - **Si una falla:** las demás siguen corriendo y el script termina con código 1.
 - **Si falta algo:** una prueba que necesita un archivo de `D:` o un programa de Windows sale como «saltada» y no cuenta como pasada.
@@ -259,7 +285,7 @@ ok       test_xml_clair_de_lune_web
 4. Investigar los silencios y el error de compás arrastrado.
 5. Conseguir una partitura completa de varias páginas en formato web y medirla.
 6. Revisar una página en MuseScore y medir cuánto se tarda.
-7. Probar las apps de práctica existentes con el MiniLab 3 y un MusicXML revisado; decidir si hace falta la propia.
+7. Practicar con el MiniLab 3 y un MusicXML revisado, y comparar con [midipiano.app](https://alternativeto.net/software/midipiano-app/about/) y [PianoML](https://hunted.space/dashboard/pianoml), que no se llegaron a probar.
 8. Quitar las peticiones directas de `svg_scrape.py` (ver sus riesgos) y probar los reintentos.
 
 ## Otros archivos
@@ -269,6 +295,7 @@ ok       test_xml_clair_de_lune_web
 | [pruebas.py](pruebas.py) | Todas las pruebas. Cada una corre por separado y al final dice cuántas pasaron |
 | [svg_scrape.py](svg_scrape.py) | Descarga los SVG de una página con tu Chrome. Ver la sección «Descarga de SVG» |
 | [partitura.py](partitura.py) | De un enlace de MuseScore al PDF y al MusicXML. Ver «Todo en un paso» |
+| [web.py](web.py), [index.html](index.html), [estilos.css](estilos.css) | La página. Ver «Página» |
 | [svg_html.py](svg_html.py) | Extrae los `<svg>` de un HTML y los pasa a PNG |
 
 ## Todo en un paso: `partitura.py`
@@ -328,7 +355,7 @@ Sin `carpeta_salida` guarda en `D:\Nahum\omr_partituras\svg_partituras\<título>
 
 ### Qué se probó
 
-- **Medido:** 2 partituras de musescore.com completas (4 de 4 y 23 de 23 hojas según la ficha) con Chrome por CDP. 24 de 24 pruebas de `pruebas.py` pasan, tres de ellas de `svg_scrape` (SVG por JS, anidados, efímeros, de la red, y el nombrado `<título>_NN`).
+- **Medido:** 2 partituras de musescore.com completas (4 de 4 y 23 de 23 hojas según la ficha) con Chrome por CDP. Las pruebas de `svg_scrape` en `pruebas.py` pasan (SVG por JS, anidados, efímeros, de la red, y el nombrado `<título>_NN`).
 - **No probado:** los reintentos, el rechazo 403/429, la salida 3 y la ficha en inglés; solo revisados leyendo el código. Tampoco se miró el contenido de los SVG descargados, solo su tamaño. Antes de conectar por CDP, con el Chrome lanzado por Playwright, 2 de 3 intentos dieron 403.
 
 ## Derechos

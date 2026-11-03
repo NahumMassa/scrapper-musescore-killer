@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Convierte partituras en SVG de MuseScore en un PDF para imprimir y un MusicXML para manipular, con una app de práctica MIDI como propuesta. Alcance, estado, flujos y resultados: [README.md](README.md). Responde en español.
+Convierte partituras en SVG de MuseScore en un PDF para imprimir y un MusicXML para manipular, con una página local (`web.py`: Home, Convertir y Práctica MIDI). Alcance, estado, flujos y resultados: [README.md](README.md). Responde en español.
 
 No uses OMR (Audiveris, homr) ni amplíes la entrada a PDF o escaneos: esa fase se descartó.
 
@@ -23,7 +23,7 @@ No uses OMR (Audiveris, homr) ni amplíes la entrada a PDF o escaneos: esa fase 
 - El flujo es lineal: convenciones → script → comparación → revisión humana en MuseScore. La revisión no vuelve a ejecutar el script.
 - El MusicXML generado se conserva intacto. El revisado es otro archivo y regenerar nunca lo sobrescribe.
 - Las convenciones solo guardan lo que no se puede leer del SVG. Si un mismo error de lectura se repite en varias partituras, arregla el script.
-- La app de práctica usa solo el MusicXML revisado. Antes de construirla hay que probar las apps existentes.
+- La app de práctica se usa con el MusicXML revisado: con el generado, una nota mal leída se exige como si fuera correcta.
 
 ## Trampas conocidas
 
@@ -39,6 +39,11 @@ No uses OMR (Audiveris, homr) ni amplíes la entrada a PDF o escaneos: esa fase 
 - Chrome no falla con un SVG vacío o cortado: termina bien y dibuja una imagen rota. Genera los PDF con `svg2pdf.py`, que lo comprueba antes.
 - No cambies `USERPROFILE` para aislar Chrome: deja de arrancar. Windows tarda en alcanzar un puerto recién abierto en WSL.
 - La carpeta temporal se vacía entre sesiones: guarda fuera de ella lo que deba conservarse.
+- OSMD con un pentagrama oculto (`practica.html`): pierde notas aunque se vuelva a mostrar, dibuja la clave del primer pentagrama y su cursor no aparece. Por eso se recarga al cambiar de mano, se copia la clave del pentagrama visible y la franja gris es propia. Revísalo si actualizas `vendor/`.
+- `setColor` de OSMD pinta todo el acorde y su plica: una sola nota se pinta en su cabeza, `getNoteheadSVGs()[vfnoteIndex]`, y después del repintado en gris.
+- OSMD no empareja una ligadura de prolongación entre dos voces: pide esa nota otra vez (compás 1 de Clair de Lune).
+- Web MIDI en Playwright solo da permiso con `midi` y `midi-sysex` juntos, y por `localhost`; en `file://` no se pudo conceder.
+- Dos procesos pueden abrir `Minilab3 MIDI` a la vez (`midisrv`). El primer puerto de la lista es `nanoKONTROL2`: elige por nombre.
 
 ## Cómo evaluar
 

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PARTITURA · Convertidor de partituras</title>
+<link rel="stylesheet" href="estilos.css">
+<nav class="barra" aria-label="Principal">
+  <a class="marca" href="#home">PARTITURA</a>
+  <div class="pestanas">
+    <a href="#home" data-pestana="home">Home</a>
+    <a href="#convertir" data-pestana="convertir">Convertir</a>
+    <a href="practica.html">Práctica</a>
+  </div>
+</nav>
+
+<main id="panel-home">
+  <section class="portada">
+    <div>
+      <p class="rotulo">Digital programmable score converter</p>
+      <h1>Tu partitura de MuseScore, lista para imprimir y editar.</h1>
+      <p class="entrada">Convierte los SVG en un PDF vectorial y un MusicXML. Sin reconocimiento óptico: lee cada símbolo con sus coordenadas.</p>
+      <div class="acciones">
+        <a class="boton" href="#convertir">Convertir</a>
+        <a class="boton secundario" href="practica.html">Practicar</a>
+      </div>
+    </div>
+    <p class="lcd" aria-hidden="true">SVG &gt; PDF + MUSICXML<br>LOCAL / SIN SUBIDAS A INTERNET</p>
+  </section>
+  <div class="membrana" aria-hidden="true"></div>
+
+  <section class="tarjetas" aria-label="Qué hace">
+    <article class="tarjeta"><h3>PDF</h3><p>Une las hojas en un A4 vectorial y rechaza los SVG vacíos o dañados antes de imprimir.</p></article>
+    <article class="tarjeta"><h3>MusicXML</h3><p>Lee notas, ritmos, voces y ligaduras para que termines de repararlos en MuseScore.</p></article>
+    <article class="tarjeta"><h3>Práctica</h3><p>Toca nota por nota con tu teclado MIDI. Cada acierto se marca en verde.</p></article>
+  </section>
+
+  <section>
+    <h2>Cómo funciona</h2>
+    <ol class="algoritmo">
+      <li>Enlace o SVG</li>
+      <li>PDF y MusicXML</li>
+      <li>Revisión en MuseScore</li>
+      <li>Práctica</li>
+    </ol>
+  </section>
+
+  <section class="aviso">
+    <h3>Revisa antes de confiar</h3>
+    <p>En 7 partituras no vistas al escribir el script, el MusicXML acertó entre el 3,5 % y el 97,1 % de las notas. No lee texto, repeticiones ni cambios de compás: repáralo en MuseScore antes de practicar.</p>
+  </section>
+</main>
+
+<main id="panel-convertir" hidden>
+  <h1>Convertir</h1>
+  <div class="membrana" aria-hidden="true"></div>
+  <form id="formulario">
+    <fieldset class="modos">
+      <legend class="rotulo">Algoritmo</legend>
+      <label><input type="radio" name="modo" value="pdf" checked> SVG → PDF</label>
+      <label><input type="radio" name="modo" value="musicxml"> SVG → MusicXML</label>
+      <label><input type="radio" name="modo" value="pipeline"> Enlace → Todo</label>
+    </fieldset>
+    <p id="explicacion" class="tenue"></p>
+    <div class="campos">
+      <label class="campo ancho" data-modos="pipeline">Enlace de MuseScore
+        <input type="url" name="url" required placeholder="https://musescore.com/usuario/scores/123">
+        <small>Abre Chrome y baja las hojas. No repitas capturas seguidas; ante un rechazo, espera varias horas.</small>
+      </label>
+      <label class="campo ancho" data-modos="pdf musicxml">Hojas SVG de una sola obra
+        <input type="file" id="svgs" name="svg" accept=".svg" multiple required>
+      </label>
+      <label class="campo" data-modos="pdf musicxml pipeline">Nombre de salida
+        <input id="nombre" name="nombre" maxlength="150" placeholder="mi_partitura">
+        <small id="nota-nombre"></small>
+      </label>
+      <label class="campo" data-modos="musicxml pipeline">Compás
+        <input name="compas" pattern="[1-9][0-9]*/[1-9][0-9]*" placeholder="4/4">
+        <small>El SVG no lo trae; si lo dejas vacío, se supone 4/4.</small>
+      </label>
+    </div>
+    <button id="ejecutar">Ejecutar</button>
+  </form>
+  <pre id="registro" class="lcd registro" role="log" tabindex="0">LISTO</pre>
+</main>
+
+<footer>Revisa los derechos de cada partitura antes de descargarla o compartirla.</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const EXPLICACIONES = {
+  pdf: 'Guarda el PDF en D:\\Nahum\\omr_partituras\\svg_to_pdf. Si ya existe uno con ese nombre, lo sustituye.',
+  musicxml: 'Guarda el MusicXML generado en D:\\Nahum\\omr_partituras\\svg_to_xml. Si ya existe uno con ese nombre, lo sustituye.',
+  pipeline: 'Captura las hojas y genera el PDF y el MusicXML en D:\\Nahum\\omr_partituras. Si ya existen con ese nombre, los sustituye.',
+};
+let enMarcha = false;
+
+function verPestana() {
+  const actual = location.hash === '#convertir' ? 'convertir' : 'home';
+  $('panel-home').hidden = actual !== 'home';
+  $('panel-convertir').hidden = actual !== 'convertir';
+  window.scrollTo(0, 0);
+  for (const a of document.querySelectorAll('[data-pestana]')) {
+    if (a.dataset.pestana === actual) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  }
+}
+
+const modo = () => $('formulario').elements.modo.value;
+
+function verModo() {
+  for (const campo of document.querySelectorAll('[data-modos]')) {
+    const visible = campo.dataset.modos.split(' ').includes(modo());
+    campo.hidden = !visible;
+    campo.querySelector('input').disabled = !visible;  // así no se valida ni se envía
+  }
+  $('nombre').required = modo() !== 'pipeline';
+  $('nota-nombre').textContent = modo() === 'pipeline' ? 'Opcional; si falta, el título de la obra.' : 'Sin _revisado: ese archivo nunca se regenera.';
+  $('explicacion').textContent = EXPLICACIONES[modo()];
+}
+
+$('svgs').onchange = e => {
+  const primero = [...e.target.files].map(f => f.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0];
+  if (primero && !$('nombre').value) $('nombre').value = primero.replace(/\.svg$/i, '').replace(/_?\d+$/, '');
+};
+
+$('formulario').onsubmit = async e => {
+  e.preventDefault();
+  const registro = $('registro'), datos = new FormData(e.target);
+  datos.delete('modo');
+  enMarcha = $('ejecutar').disabled = true;
+  registro.className = 'lcd registro';
+  registro.textContent = 'EN MARCHA…\n';
+  try {
+    const r = await fetch(`/${modo()}`, { method: 'POST', body: datos });
+    if (r.status === 501) throw new Error('Este servidor no ejecuta scripts. Arranca el de la página: .venv/bin/python web.py');
+    if (!r.ok) throw new Error(await r.text());
+    const lector = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    for (let { value, done } = await lector.read(); !done; { value, done } = await lector.read()) {
+      registro.textContent += value;
+      registro.scrollTop = registro.scrollHeight;
+    }
+    if (!/\[código 0\]\s*$/.test(registro.textContent)) registro.classList.add('mal');
+  } catch (error) {
+    registro.classList.add('mal');
+    registro.textContent = error instanceof TypeError ? 'No hay servidor. Arráncalo con: .venv/bin/python web.py' : error.message;
+  }
+  enMarcha = $('ejecutar').disabled = false;
+};
+
+for (const radio of $('formulario').elements.modo) radio.onchange = verModo;
+window.onhashchange = verPestana;
+// cerrar la página no detiene el script, pero se perdería lo que está escribiendo
+window.onbeforeunload = e => { if (enMarcha) e.preventDefault(); };
+verPestana();
+verModo();
+</script>
+</html>

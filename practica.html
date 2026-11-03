@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PARTITURA · Práctica</title>
+<link rel="stylesheet" href="estilos.css">
+<body class="practica">
+<header>
+  <nav class="barra" aria-label="Principal">
+    <a class="marca" href="index.html#home">PARTITURA</a>
+    <div class="pestanas">
+      <a href="index.html#home">Home</a>
+      <a href="index.html#convertir">Convertir</a>
+      <a href="practica.html" aria-current="page">Práctica</a>
+    </div>
+  </nav>
+  <div class="practica-controles">
+    <label>Partitura <input type="file" id="archivo" accept=".musicxml,.xml,.mxl"></label>
+    <label>Teclado <select id="entrada"></select></label>
+    <label>Mano
+      <select id="mano">
+        <option value="ambas">Ambas</option>
+        <option value="0">Derecha</option>
+        <option value="1">Izquierda</option>
+      </select>
+    </label>
+    <label>Ver
+      <select id="vista">
+        <option value="sistema">Sistema actual</option>
+        <option value="toda">Toda la partitura</option>
+      </select>
+    </label>
+    <label>Compases <input type="number" id="desde" min="0" placeholder="inicio"></label>
+    <label>a <input type="number" id="hasta" min="0" placeholder="fin"></label>
+    <label><input type="checkbox" id="octava" checked> Ignorar octava</label>
+    <button id="reiniciar" class="secundario">Reiniciar</button>
+    <button id="saltar">Saltar</button>
+  </div>
+  <p id="estado" role="status"></p>
+</header>
+<div id="marco">
+  <div id="partitura"></div>
+  <div id="paso" hidden></div>
+</div>
+<script src="vendor/opensheetmusicdisplay.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const NOMBRES = { 0: 'Do', 2: 'Re', 4: 'Mi', 5: 'Fa', 7: 'Sol', 9: 'La', 11: 'Si' };
+const ALTERACIONES = { '-2': '𝄫', '-1': '♭', 0: '', 1: '♯', 2: '𝄪' };
+
+const GRIS = '#8a8a8a', VERDE = '#1f9d3a';
+
+const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay('partitura', {
+  autoResize: false,  // el redibujo automático borraría los colores
+});
+let midi = null, cargada = false, contenido = '';
+let exigidas = new Map(), faltan = new Map();  // clave de comparación → notas del paso con esa clave
+const tocadas = new Set(), dibujadas = new Map();  // nota → su dibujo, que cambia al redibujar
+let aciertos = 0, fallos = 0, resultado = '', aviso = '', avisoMidi = '', clase = '';
+
+const nombre = n => NOMBRES[n.Pitch.FundamentalNote] + (ALTERACIONES[n.Pitch.AccidentalHalfTones] ?? '') + (Math.floor(alturaMidi(n) / 12) - 1);
+const alturaMidi = n => n.halfTone + 12;
+// El MiniLab tiene 25 teclas: ignorando la octava, cualquier nota de la partitura se puede tocar.
+const clave = altura => $('octava').checked ? altura % 12 : altura;
+
+function mostrar() {
+  const partes = [avisoMidi, resultado, aviso];
+  if (cargada) partes.push(`Faltan: ${[...faltan.values()].map(notas => nombre(notas[0])).join(' ') || '—'}`, `Aciertos ${aciertos} · Fallos ${fallos}`);
+  $('estado').textContent = partes.filter(Boolean).join(' · ') || 'Suelta aquí un MusicXML o elígelo arriba.';
+  $('estado').className = clase;
+}
+
+function notasDelPaso() {
+  // shortcut: solo evalúa los dos primeros pentagramas (partituras de piano); con más instrumentos habría que elegir cuál.
+  const manos = $('mano').value === 'ambas' ? [0, 1] : [Number($('mano').value)];
+  return osmd.cursor.NotesUnderCursor().filter(n =>
+    !n.isRest() && !n.IsGraceNote && n.PrintObject
+    // shortcut: OSMD no empareja una ligadura entre dos voces y ese acorde se pide otra vez (2 notas de 4181 en las partituras medidas); si estorba, usar Saltar.
+    && (!n.NoteTie || n.NoteTie.StartNote === n)  // una nota ligada no se vuelve a tocar
+    && manos.includes(n.ParentStaffEntry.ParentStaff.idInMusicSheet));
+}
+
+// Deja el cursor en el siguiente paso con notas que tocar. Devuelve false si se acabó el fragmento.
+function buscarPaso() {
+  const hasta = $('hasta').value === '' ? Infinity : Number($('hasta').value);
+  for (const c = osmd.cursor; !c.Iterator.EndReached && c.Iterator.CurrentMeasure.MeasureNumber <= hasta; c.next()) {
+    const notas = notasDelPaso();
+    if (notas.length) {
+      exigidas = Map.groupBy(notas, n => clave(alturaMidi(n)));
+      faltan = new Map(exigidas);
+      encuadrar();
+      return true;
+    }
+  }
+  exigidas = new Map();
+  faltan = new Map();
+  $('paso').hidden = true;
+  return false;
+}
+
+// setColor pintaría todo el acorde y la plica, que son de varias notas: solo se pinta la cabeza de esta nota.
+function pintarTocada(g) {
+  for (const parte of g.getNoteheadSVGs()[g.vfnoteIndex]?.querySelectorAll('path') ?? []) parte.setAttribute('fill', VERDE);
+}
+
+function pintar() {
+  dibujadas.clear();
+  for (const compas of osmd.GraphicSheet.MeasureList.flat()) {
+    for (const entrada of compas?.staffEntries ?? []) {
+      for (const voz of entrada.graphicalVoiceEntries) {
+        for (const g of voz.notes) {
+          dibujadas.set(g.sourceNote, g);
+          if (!g.sourceNote.isRest()) g.setColor(GRIS, { applyToBeams: true });
+        }
+      }
+    }
+  }
+  // después del gris: setColor de una nota pinta todo su acorde
+  for (const n of tocadas) if (dibujadas.has(n)) pintarTocada(dibujadas.get(n));
+}
+
+function marcar(notas) {
+  for (const n of notas.flatMap(n => n.NoteTie?.Notes ?? [n])) {
+    tocadas.add(n);
+    if (dibujadas.has(n)) pintarTocada(dibujadas.get(n));
+  }
+}
+
+// La partitura entera sigue dibujada: la vista de sistema solo la recorta a la franja del sistema actual.
+// La franja gris es propia porque el cursor de OSMD no aparece con un pentagrama oculto.
+function encuadrar() {
+  const p = $('partitura'), toda = $('vista').value === 'toda';
+  const sistema = osmd.GraphicSheet.MeasureList[osmd.cursor.Iterator.CurrentMeasureIndex]?.find(m => m?.ParentMusicSystem)?.ParentMusicSystem;
+  const cabezas = [...exigidas.values()].flat().flatMap(n => dibujadas.get(n)?.getNoteheadSVGs() ?? []);
+  if (!sistema) return;
+  const caja = sistema.PositionAndShape, escala = 10 * osmd.zoom, margen = 8;
+  const arriba = (caja.AbsolutePosition.y + caja.BorderMarginTop) * escala - margen;
+  const alto = (caja.BorderMarginBottom - caja.BorderMarginTop) * escala + 2 * margen;
+  p.style.overflow = toda ? '' : 'hidden';
+  p.style.height = toda ? '' : `${alto}px`;
+  p.scrollTop = toda ? 0 : arriba;
+  $('paso').hidden = !cabezas.length;
+  if (!cabezas.length) return;
+  const x = Math.min(...cabezas.map(c => c.getBoundingClientRect().left));
+  $('paso').style.left = `${x - p.getBoundingClientRect().left - 8}px`;
+  $('paso').style.top = `${toda ? arriba : 0}px`;
+  $('paso').style.height = `${alto}px`;
+}
+
+function verPaso() {
+  if ($('vista').value === 'toda' && !$('paso').hidden) $('paso').scrollIntoView({ block: 'center' });
+}
+
+// Carga de nuevo porque, tras ocultar un pentagrama, OSMD pierde notas aunque se vuelva a mostrar.
+async function dibujarManos() {
+  await osmd.load(contenido);
+  const mano = Number($('mano').value), pentagramas = osmd.Sheet.Staves;
+  pentagramas.forEach((s, i) => { s.Visible = $('mano').value === 'ambas' || !pentagramas[mano] || i === mano; });
+  // Con el primer pentagrama oculto, OSMD dibuja la clave y la armadura de ese: se le da la del que queda visible.
+  if (pentagramas[mano] && mano > 0) for (const m of osmd.Sheet.SourceMeasures) m.FirstInstructionsStaffEntries[0] = m.FirstInstructionsStaffEntries[mano];
+  osmd.updateGraphic();
+  osmd.render();
+}
+
+function reiniciar() {
+  if (!cargada) return;
+  resultado = '';
+  tocadas.clear();
+  pintar();
+  const c = osmd.cursor, desde = Number($('desde').value);
+  c.reset();
+  c.hide();
+  while (!c.Iterator.EndReached && c.Iterator.CurrentMeasure.MeasureNumber < desde) c.next();
+  aciertos = fallos = 0;
+  aviso = buscarPaso() ? '' : 'No hay notas en esa selección';
+  clase = '';
+  verPaso();
+  mostrar();
+}
+
+function siguiente() {
+  osmd.cursor.next();
+  if (buscarPaso()) return;
+  resultado = `Terminado: ${aciertos} aciertos, ${fallos} fallos. Pulsa Reiniciar para repetir`;
+}
+
+function tecla(e) {
+  const [estado, nota, fuerza] = e.data;
+  // los pads del MiniLab salen por el canal 10 y no son notas de la partitura
+  if ((estado & 0xf0) !== 0x90 || !fuerza || (estado & 0x0f) === 9 || !cargada || !exigidas.size) return;
+  const k = clave(nota);
+  if (faltan.has(k)) {
+    marcar(faltan.get(k));
+    faltan.delete(k);
+    aciertos++;
+    clase = 'bien';
+    if (!faltan.size) siguiente();
+  } else if (!exigidas.has(k)) {  // repetir una nota ya acertada del acorde no es un fallo
+    fallos++;
+    clase = 'mal';
+  }
+  mostrar();
+}
+
+function listarEntradas() {
+  const antes = $('entrada').value, puertos = [...midi.inputs.values()];
+  $('entrada').replaceChildren(...puertos.map(p => new Option(p.name, p.id)));
+  const elegido = puertos.find(p => p.id === antes) ?? puertos.find(p => /minilab.*midi/i.test(p.name)) ?? puertos[0];
+  if (elegido) $('entrada').value = elegido.id;
+  conectar();
+}
+
+function conectar() {
+  for (const p of midi.inputs.values()) p.onmidimessage = null;
+  const p = midi.inputs.get($('entrada').value);
+  avisarMidi(p ? '' : 'No se ve ningún teclado MIDI: conéctalo.');
+  if (!p) return;
+  p.onmidimessage = tecla;
+  p.open().catch(e => avisarMidi(`No se pudo abrir ${p.name}; quizá otro programa lo tiene ocupado (${e.message}).`));
+}
+
+function avisarMidi(texto) {
+  avisoMidi = texto;
+  mostrar();
+}
+
+async function cargar(archivo) {
+  if (!archivo) return;
+  cargada = false;
+  exigidas = new Map();
+  faltan = new Map();
+  resultado = aviso = clase = '';
+  aviso = `Cargando ${archivo.name}…`;
+  mostrar();
+  await new Promise(r => setTimeout(r));  // deja pintar el aviso antes de que el dibujo bloquee la página
+  try {
+    // OSMD reconoce un .mxl (zip) solo si le llega como cadena binaria
+    contenido = archivo.name.toLowerCase().endsWith('.mxl')
+      ? Array.from(new Uint8Array(await archivo.arrayBuffer()), b => String.fromCharCode(b)).join('')
+      : await archivo.text();
+    // OSMD trataría cualquier otro texto como una URL que descargar
+    if (!archivo.name.toLowerCase().endsWith('.mxl') && !/<score-(partwise|timewise)/.test(contenido)) throw new Error('no parece un MusicXML');
+    await dibujarManos();
+    cargada = true;
+    reiniciar();
+  } catch (e) {
+    aviso = `No se pudo leer ${archivo.name}: ${e.message}`;
+    clase = 'mal';
+    mostrar();
+  }
+}
+
+$('archivo').onchange = e => cargar(e.target.files[0]);
+document.body.ondragover = e => e.preventDefault();
+document.body.ondrop = e => { e.preventDefault(); cargar(e.dataTransfer.files[0]); };
+$('entrada').onchange = conectar;
+$('reiniciar').onclick = reiniciar;
+$('vista').onchange = () => { if (cargada) { encuadrar(); verPaso(); } };
+$('mano').onchange = async () => {
+  if (!cargada) return;
+  cargada = false;  // no evaluar teclas mientras se dibuja
+  await dibujarManos();
+  cargada = true;
+  reiniciar();
+};
+$('saltar').onclick = () => { if (exigidas.size) { siguiente(); mostrar(); } };
+for (const id of ['desde', 'hasta', 'octava']) $(id).onchange = reiniciar;
+let esperaRedibujo;
+window.onresize = () => {
+  clearTimeout(esperaRedibujo);
+  esperaRedibujo = setTimeout(() => {
+    if (!cargada) return;
+    osmd.render();
+    pintar();
+    encuadrar();
+  }, 200);
+};
+
+mostrar();
+if (!navigator.requestMIDIAccess) {
+  avisarMidi('Este navegador no tiene Web MIDI: usa Chrome.');
+} else {
+  navigator.requestMIDIAccess().then(m => {
+    midi = m;
+    midi.onstatechange = listarEntradas;
+    listarEntradas();
+  }, e => avisarMidi(`Chrome no dio permiso de MIDI (${e.message}).`));
+}
+</script>
+</html>

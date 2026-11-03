@@ -272,6 +272,8 @@ def construir_eventos(pag, sistema, npag):
             continue
         h = dict(n, penta=penta)
         c = [s for s in stems if s["y0"] - .6 * sp <= n["y"] <= s["y1"] + .6 * sp and min(abs(n["x0"] - s["x"]), abs(n["x1"] - s["x"])) < .25 * sp]
+        if n["huecos"] and n["x1"] - n["x0"] > 1.1 * pag.cabeza:
+            c = []  # redonda (más ancha): no tiene plica, aunque la de otra nota llegue hasta ella
         if c:
             # dos voces al unísono dibujan dos cabezas superpuestas: cada una a una plica distinta, y la hueca a la sin barra
             ocupada = lambda s: any(abs(o["y"] - n["y"]) < .2 * sp and abs(o["x"] - n["x"]) < .2 * sp for o in s["cabezas"])
@@ -330,7 +332,7 @@ def construir_eventos(pag, sistema, npag):
             ev["x"] = sorted(o["x"] for o in ev["cabezas"])[len(ev["cabezas"]) // 2]  # la columna principal, no la desplazada
         else:
             # shortcut: la barra diagonal de ritmo se toma por negra; si hay blancas en barra, saldrán negras
-            barra_ritmo = (h["x1"] - h["x0"]) / sp > 1.9
+            barra_ritmo = (h["x1"] - h["x0"]) / sp > 1.9 and (h["y1"] - h["y0"]) / sp > 1.5  # la redonda es igual de ancha en algunas fuentes, pero baja
             eventos.append(dict(tipo="nota", base=F(2) if barra_ritmo else F(8), cabezas=[h], up=None, plica=False, x=h["x"], barra=None, penta=h["penta"], extremo=h["y"], slash=barra_ritmo))
     en_espacio = [h for o in eventos for h in o["cabezas"] if round((h["y"] - sistema[h["penta"]]["top"]) / (sp / 2)) % 2]
     libres = [d for d in dots if not any(tiene_puntillo(h, None, d, sistema, sp) for h in en_espacio)]
@@ -446,6 +448,35 @@ def marcar_grupo(miembros, real, normal):
     miembros[0]["t_ini"] = miembros[-1]["t_fin"] = True
 
 
+def quitar_implicitos(c):
+    for e in c["ev"]:
+        if e.pop("implicito", False):
+            e["factor"] = F(1)
+            for k in ("tresillo", "t_ini", "t_fin"):
+                e.pop(k, None)
+
+
+def probar_numerador(c, den):
+    """Numerador de una cifra sin reconocer: el que llena el compás en todos sus pentagramas (con tresillos implícitos
+    si hace falta); si ninguno los llena todos, el primero con el que cuadra."""
+    cuadra = []
+    for n in range(1, 13):
+        largo = F(8 * n, den)
+        total, fallos = barrer(c["ev"], c["pag"].sp, largo)
+        if total != largo or fallos:
+            total, fallos = tresillos_implicitos(c, largo, total, fallos)
+        if total == largo and not fallos:
+            fin = {}
+            for e in c["ev"]:
+                fin[e["penta"]] = max(fin.get(e["penta"], 0), e["t"] + duracion(e))
+            if all(v == largo for v in fin.values()):
+                quitar_implicitos(c)
+                return n
+            cuadra.append(n)
+        quitar_implicitos(c)
+    return cuadra[0] if cuadra else None
+
+
 def tresillos_implicitos(c, largo, total, fallos):
     """Marca como tresillo cada grupo con barra de tres notas iguales sin número; se queda solo si el compás cuadra."""
     grupos = {}
@@ -470,14 +501,12 @@ def tresillos_implicitos(c, largo, total, fallos):
         for elegidos in combinations(tres, r):
             for g in elegidos:
                 marcar_grupo(g, 3, 2)
+                for e in g:
+                    e["implicito"] = True
             nuevo, nuevos_fallos = barrer(c["ev"], c["pag"].sp, largo)
             if nuevo == largo and not nuevos_fallos:
                 return nuevo, nuevos_fallos
-            for g in elegidos:
-                for e in g:
-                    e["factor"] = F(1)
-                    for k in ("tresillo", "t_ini", "t_fin"):
-                        e.pop(k, None)
+            quitar_implicitos(c)
     return barrer(c["ev"], c["pag"].sp, largo)
 
 
@@ -828,17 +857,15 @@ def reconocer(ruta, clase):
         grupo = [cs[i]] + [cs[j] for j in range(len(cs)) if j != i and catalogo.dentro(cajas[j], cajas[i], sp)]
         nombre = next((k for k, g in nombres.items() if catalogo.iguales(catalogo.firma(grupo, sp), g)), None)
         x0, y0, x1, y1 = cajas[i]
-        out.append(dict(nombre=nombre, x0=x0, y0=y0, x1=x1, y1=y1, x=(x0 + x1) / 2, y=(y0 + y1) / 2))
+        out.append(dict(nombre=nombre, firma=catalogo.firma(grupo, sp), x0=x0, y0=y0, x1=x1, y1=y1, x=(x0 + x1) / 2, y=(y0 + y1) / 2))
     return out
 
 
 def leer_cifras(ruta, pag):
-    """Cifras de compás de una página como [(sistema, x, num, den)]. Con un dígito sin reconocer (otra fuente, o sin
-    catálogo) no devuelve nada: una cifra a medias daría un compás falso."""
+    """Cifras de compás de una página como [(sistema, x, num, den)], con num y den como listas de dígitos: dict con
+    d (el dígito, o None si el catálogo no lo conoce) y la firma de su contorno, para nombrarlo con la partitura."""
     sp = pag.sp
     leidos = [dict(g, d=g["nombre"]) for g in reconocer(ruta, "TimeSig")]
-    if any(d["d"] is None for d in leidos):
-        return []
     out = []
     for sistema in pag.sistemas:
         p = sistema[0]  # basta el pentagrama de arriba: todos llevan la misma cifra
@@ -847,10 +874,10 @@ def leer_cifras(ruta, pag):
         while en:  # columnas: dígitos que se solapan en x (12/8 lleva dos arriba)
             col = [d for d in en if d["x0"] < en[0]["x0"] + 2 * sp]
             en = en[len(col):]
-            num = "".join(d["d"] for d in col if d["y"] < medio)
-            den = "".join(d["d"] for d in col if d["y"] > medio)
+            num = [d for d in col if d["y"] < medio]
+            den = [d for d in col if d["y"] > medio]
             if num and den:
-                out.append((sistema, min(d["x0"] for d in col), int(num), int(den)))
+                out.append((sistema, min(d["x0"] for d in col), num, den))
     return out
 
 
@@ -880,8 +907,22 @@ def convertir(rutas, compas, defecto=None):
                 k = k + 1 if k + 1 < len(compases) else None
             if k is not None:
                 compases[k]["cifra"] = (a, b)
-    if compas or "cifra" in compases[0]:
-        actual = compases[0].get("cifra") or tuple(map(int, compas.split("/")))
+    import catalogo
+    aprendidos = []  # (firma, dígito): cifras que el catálogo no conoce, nombradas con la propia partitura
+
+    def valor(digitos):
+        ds = [d["d"] or next((v for f, v in aprendidos if catalogo.iguales(f, d["firma"])), None) for d in digitos]
+        return int("".join(ds)) if all(ds) else None
+
+    def aprender(digitos, v):
+        if len(digitos) == len(str(v)):
+            aprendidos.extend((d["firma"], ch) for d, ch in zip(digitos, str(v)) if d["d"] is None)
+
+    cifra = compases[0].get("cifra")
+    if compas:
+        actual = tuple(map(int, compas.split("/")))
+    elif cifra and valor(cifra[0]) and valor(cifra[1]):
+        actual = (valor(cifra[0]), valor(cifra[1]))
     else:
         largos = Counter()  # los silencios de compás completo no cuentan
         for c in compases:
@@ -897,9 +938,9 @@ def convertir(rutas, compas, defecto=None):
             actual = tuple(map(int, defecto.split("/")))
         else:
             sys.exit(f"no se pudo deducir el compás ({largo} corcheas): usa --compas")
-    for c in compases:
-        actual = c.get("cifra", actual)
-        c["compas"] = actual
+    if cifra:  # la primera cifra, ya sabida, enseña sus dígitos para leer las siguientes
+        aprender(cifra[0], actual[0])
+        aprender(cifra[1], actual[1])
     # armaduras, con el mismo criterio de compás que las cifras; la de cada sistema repite la vigente
     for pag in paginas:
         for sistema, x, f in leer_armaduras(pag):
@@ -914,6 +955,15 @@ def convertir(rutas, compas, defecto=None):
     malos = []
     t_abs = F(0)
     for idx, c in enumerate(compases, 1):
+        if "cifra" in c and idx > 1:
+            num, den = valor(c["cifra"][0]), valor(c["cifra"][1])
+            if den and not num:
+                num = probar_numerador(c, den)
+                if num:
+                    aprender(c["cifra"][0], num)
+            if num and den:
+                actual = (num, den)
+        c["compas"] = actual
         largo = F(8 * c["compas"][0], c["compas"][1])
         total, fallos = barrer(c["ev"], c["pag"].sp, largo)
         if total != largo or fallos:  # tresillos sin número: muchas ediciones lo imprimen solo en los primeros

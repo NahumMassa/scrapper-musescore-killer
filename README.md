@@ -28,7 +28,7 @@ El nombre del repo viene de una fase anterior basada en reconocimiento óptico d
 | Descarga de SVG | [svg_scrape.py](svg_scrape.py) baja partituras completas de musescore.com (4 y 23 hojas probadas); reintentos y rechazos sin probar |
 | Todo en un paso | [partitura.py](partitura.py): enlace → PDF + MusicXML; probado con un enlace |
 | Página | [web.py](web.py): Home, Convertir y Práctica; pipeline probada solo contra una página local |
-| Pruebas | [pruebas.py](pruebas.py): 48 de 48 pasan |
+| Pruebas | [pruebas.py](pruebas.py): 49 de 49 pasan |
 
 ## Partituras generadas
 
@@ -278,13 +278,13 @@ Todas están en [pruebas.py](pruebas.py). Cada una corre por separado y al final
 ok       test_pdf_rechaza_0_bytes
 ok       test_xml_clair_de_lune_web
 ...
-48 de 48 pruebas pasaron (0 fallaron, 0 saltadas)
+49 de 49 pruebas pasaron (0 fallaron, 0 saltadas)
 ```
 
 | Script | Pruebas | Qué cubren |
 |---|---|---|
 | `svg2pdf.py` | 9 | SVG vacío, cortado o que no es SVG; orden de páginas; un PDF real generado con Chrome |
-| `svg2musicxml.py` | 12 | Lectura de contornos, matrices y armaduras; SVG vacío o ajeno; Clair de Lune, Él siempre reina y Night Dreamer nota por nota |
+| `svg2musicxml.py` | 13 | Lectura de contornos, matrices y armaduras; SVG vacío o ajeno; Clair de Lune, Él siempre reina, Night Dreamer y tres obras web nota por nota |
 | `svg_scrape.py` | 4 | SVG creados por JS, anidados, repetidos, efímeros, en contenedores con desplazamiento, recibidos por la red y nombrado `<título>_NN` |
 | `partitura.py` | 0 | Sin pruebas propias |
 | `web.py` e `index.html` | 8 | Rutas servidas, orígenes, validación, comando y orden de hojas, un trabajo a la vez, PDF y MusicXML reales, y el formulario en Chrome con scripts falsos |

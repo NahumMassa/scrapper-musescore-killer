@@ -222,6 +222,23 @@ def test_xml_night_dreamer_escritorio():
     assert r["sil_ok"] == r["sil_ref"] == r["sil_res"]
 
 
+def test_xml_obras_web():
+    # vals, preludio y Arabesque de musescore.com: tresillos sin número, voces compartidas, otra fuente, armaduras
+    base = PARTITURAS / "test/Prueba_script"
+    obras = {"waltz_in_a_minor_chopin": "waltz-in-a-minorchopin", "arabesque_l_66_no_1_in_e_major": "arabesque-l-66-no-1-in-e-major",
+             "prelude_i_in_c_major_bwv_846_well_tempered_clavier_first_book": "prelude-i-in-c-major-bwv-846-well-tempered-clavier-first-book"}
+    for carpeta, mxl in obras.items():
+        z = base / "xml_originales" / f"{mxl}.mxl"
+        if not z.exists():
+            raise Saltar(f"falta {z.name}")
+        with tempfile.TemporaryDirectory() as d, zipfile.ZipFile(z) as zf:
+            ref = Path(d) / "ref.musicxml"
+            ref.write_bytes(zf.read("score.xml"))
+            r = calificar(sorted(map(str, (base / "svg_test" / carpeta).glob("*.svg"))), ref, None)
+        assert r["ok"] == r["ref"] == r["res"], f"{carpeta}: {r['ok']} de {r['ref']} notas, {r['res']} escritas"
+        assert r["sil_ok"] == r["sil_ref"] == r["sil_res"], carpeta
+
+
 # --- svg_scrape ---
 # Cubre: svg creado por JS, anidado, repetido, uno que solo existe mientras está en pantalla,
 # uno que aparece al desplazar un contenedor interno, y uno que llega por la red como <img>

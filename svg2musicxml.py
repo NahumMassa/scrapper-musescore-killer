@@ -283,7 +283,7 @@ def construir_eventos(pag, sistema, npag):
             con_barra = lambda s: any(b["x0"] - .2 * sp <= s["x"] <= b["x1"] + .2 * sp and (b["y0"] - .25 * sp <= s["y0"] <= b["y1"] + .25 * sp
                                       or b["y0"] - .25 * sp <= s["y1"] <= b["y1"] + .25 * sp) for b in beams)
             # a igual distancia, la plica más corta: la punta de una plica larga de otra voz puede tocar la cabeza
-            min(c, key=lambda s: (ocupada(s), bool(n["huecos"]) and con_barra(s), round(min(abs(n["x0"] - s["x"]), abs(n["x1"] - s["x"])) / (.1 * sp)),
+            min(c, key=lambda s: (ocupada(s), bool(n["huecos"]) and con_barra(s), round(min(abs(n["x0"] - s["x"]), abs(n["x1"] - s["x"])) / (.05 * sp)),
                                   s["y1"] - s["y0"]))["cabezas"].append(h)
             tocadas.append((h, c))
         else:
@@ -494,8 +494,15 @@ def probar_numerador(c, den):
     return cuadra[0] if cuadra else None
 
 
-def tresillos_implicitos(c, largo, total, fallos):
-    """Marca como tresillo cada grupo con barra de tres notas iguales sin número; se queda solo si el compás cuadra."""
+def voces(c):
+    """Voces que necesita el pentagrama más cargado del compás."""
+    repartir_voces(c["ev"])
+    return max([len({e["voz"] for e in c["ev"] if e["penta"] == p}) for p in {e["penta"] for e in c["ev"]}] or [0])
+
+
+def tresillos_implicitos(c, largo, total, fallos, limite=None):
+    """Marca como tresillo cada grupo con barra de tres notas iguales sin número; se queda solo si el compás cuadra
+    (y, con limite, si además necesita menos voces que limite)."""
     grupos = {}
     for e in c["ev"]:
         if e["barra"] is not None and not e.get("adorno"):
@@ -521,7 +528,7 @@ def tresillos_implicitos(c, largo, total, fallos):
                 for e in g:
                     e["implicito"] = True
             nuevo, nuevos_fallos = barrer(c["ev"], c["pag"].sp, largo)
-            if nuevo == largo and not nuevos_fallos:
+            if nuevo == largo and not nuevos_fallos and (limite is None or voces(c) < limite):
                 return nuevo, nuevos_fallos
             quitar_implicitos(c)
     return barrer(c["ev"], c["pag"].sp, largo)
@@ -990,6 +997,8 @@ def convertir(rutas, compas, defecto=None):
         total, fallos = barrer(c["ev"], c["pag"].sp, largo)
         if total != largo or fallos:  # tresillos sin número: muchas ediciones lo imprimen solo en los primeros
             total, fallos = tresillos_implicitos(c, largo, total, fallos)
+        elif voces(c) > 2:  # cuadra, pero un tresillo leído como corcheas obliga a una tercera voz
+            total, fallos = tresillos_implicitos(c, largo, total, fallos, limite=voces(c))
         c["n"], c["largo"], c["t0"] = idx, max(total, F(0)), t_abs
         if (total != largo and not c["pct"]) or fallos:
             malos.append(idx)

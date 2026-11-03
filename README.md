@@ -129,7 +129,7 @@ Los errores de lectura de una nota no van aquí: se reparan en la revisión. Si 
 python svg2musicxml.py pagina1.svg pagina2.svg -o /mnt/d/Nahum/omr_partituras/svg_to_xml/mi_partitura.musicxml
 ```
 
-Las cifras de compás se leen del SVG, cambios incluidos, si usan la fuente por defecto de MuseScore 4 (se comparan con [glifos.json](glifos.json)). Si no se reconocen, vale `--compas 9/8`, y sin él 4/4.
+Las cifras de compás se leen del SVG, cambios incluidos, si usan la fuente por defecto de MuseScore 4 (se comparan con [glifos.json](glifos.json)). Si no se reconocen, vale `--compas 9/8`; sin él, se deduce de la duración más frecuente de los compases (no distingue 6/8 de 3/4) y, si tampoco se puede, 4/4.
 
 Los MusicXML se guardan en `D:\Nahum\omr_partituras\svg_to_xml`.
 
@@ -158,6 +158,16 @@ Solo usa la biblioteca estándar. Lee cada símbolo y calcula:
 | homr, Night Dreamer p2 | 16 de 453 (3,5 %) | Entrada de OMR |
 
 **Estas 7 filas no miden el script.** Son SVG que salieron de motores OMR (Audiveris y homr) y que MuseScore exportó con sus errores y compases que no cuadran. Se conservan solo para comparar entre sí, no como la precisión del script con partituras reales. Con esos archivos el rango fue de 3,5 % a 97,1 %, que no sirve como medida.
+
+**Medición limpia (2 de noviembre de 2026):** tres obras de musescore.com en SVG web, no vistas al escribir el script, contra su MusicXML original, antes de afinar nada con ellas.
+
+| Partitura | Notas correctas | Silencios |
+|---|---|---|
+| Vals en la menor, Chopin | 600 de 603 (99,5 %) | 16 de 16 |
+| Preludio en do, BWV 846 | 598 de 619 (96,6 %) | 132 de 132 |
+| Arabesque n.º 1, Debussy | 678 de 1545 (43,9 %) | 22 de 44 |
+
+Después se afinó el script con ellas, así que esas cifras ya no se pueden repetir como medida limpia.
 
 **Pendiente: repetir la medición** con partituras de MuseScore bien hechas que el script no haya visto, y con una referencia correcta. Hasta entonces no hay cifra fiable de generalización; las tres primeras filas se usaron para afinar el script.
 

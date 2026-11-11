@@ -1,4 +1,4 @@
-# omr-musescore-killer
+# Scrapper-musescore-killer
 
 Convierte partituras en SVG exportadas de MuseScore en un PDF para imprimir y un MusicXML para manipular. Como siguiente paso se propone una app para practicar fragmentos con un teclado MIDI.
 
